@@ -3,6 +3,8 @@
 System-wide autocomplete for macOS, powered exclusively by the Apple
 Intelligence model already managed by macOS.
 
+This project is a fork of [nikiomori/Pretype](https://github.com/nikiomori/Pretype).
+
 Pretype reads the focused editable field through the Accessibility API, asks
 the on-device Foundation Model for a short continuation, and draws ghost text
 at the caret. Press Tab to accept one word, Shift-Tab to accept the rest, or
