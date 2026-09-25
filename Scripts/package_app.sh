@@ -6,7 +6,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 
 APP_NAME=Pretype
-BUNDLE_ID=app.pretype.Pretype
+BUNDLE_ID=me.nkdr.pretype
 MACOS_MIN_VERSION=26.0
 source "$ROOT/version.env"
 MARKETING_VERSION=${PRETYPE_VERSION:-$MARKETING_VERSION}

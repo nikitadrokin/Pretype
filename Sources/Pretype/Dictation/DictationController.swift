@@ -5,7 +5,7 @@ import os
 
 /// Subsystem for the dictation trail. File-scope, so `note` can stay
 /// `nonisolated` — a log handle is not main-actor state.
-private let dictationLog = OSLog(subsystem: "app.pretype.Pretype", category: "dictation")
+private let dictationLog = OSLog(subsystem: "me.nkdr.pretype", category: "dictation")
 
 /// Hold-to-talk dictation: hold the modifier, speak, release — the words are
 /// typed into the field you were already in.
@@ -134,7 +134,7 @@ final class DictationController {
     /// holding the key do nothing". A handful of lines per capture costs
     /// nothing and makes the whole flow observable from outside:
     ///
-    ///     log show --last 5m --predicate 'subsystem == "app.pretype.Pretype"'
+    ///     log show --last 5m --predicate 'subsystem == "me.nkdr.pretype"'
     ///
     /// `%{public}@` is load-bearing: the unified log redacts interpolated
     /// arguments by default, and an `NSLog("...%@", message)` here showed up as

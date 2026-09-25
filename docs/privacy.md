@@ -40,10 +40,10 @@ rm -rf ~/Library/Application\ Support/Pretype
 
 # 4. Settings and the permission grants (drop the last two if you never
 #    turned on screen context or dictation)
-defaults delete app.pretype.Pretype
-tccutil reset Accessibility app.pretype.Pretype
-tccutil reset ScreenCapture app.pretype.Pretype
-tccutil reset Microphone app.pretype.Pretype
+defaults delete me.nkdr.pretype
+tccutil reset Accessibility me.nkdr.pretype
+tccutil reset ScreenCapture me.nkdr.pretype
+tccutil reset Microphone me.nkdr.pretype
 ```
 
 Installed with Homebrew? `brew uninstall pretype` replaces step 1; steps 2–4 still apply.

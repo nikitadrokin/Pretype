@@ -7,7 +7,7 @@ Open **Diagnostics** from the menu-bar icon — *Context* shows what Pretype see
 **`Accessibility: NOT granted ✗`** — if you're running the raw binary from a terminal, macOS attributes the permission to the *terminal*, so grant it there or run the `.app` bundle. If you built locally, a changed code signature can confuse macOS:
 
 ```bash
-tccutil reset Accessibility app.pretype.Pretype
+tccutil reset Accessibility me.nkdr.pretype
 ```
 
 then re-grant.
