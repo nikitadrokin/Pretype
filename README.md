@@ -46,6 +46,19 @@ third-party model package is needed.
 For the normal development loop, `./Scripts/compile_and_run.sh --test` runs the
 tests, replaces the bundle, relaunches it, and verifies that it stayed running.
 
+## Release locally
+
+```bash
+./Scripts/release.sh --install
+```
+
+The release script bumps the patch version, runs the tests, builds and signs the
+app on this Mac, creates `build/Pretype.app.zip`, commits and tags the version,
+pushes it, and creates the GitHub Release with the ZIP attached. `--install`
+copies that exact locally built release into `/Applications`, so downloading it
+again is unnecessary. Use `--dry-run` to build without publishing, or
+`--version X.Y.Z`, `--minor`, or `--major` to control the version.
+
 ## Architecture
 
 ```text
