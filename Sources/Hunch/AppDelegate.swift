@@ -16,9 +16,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // A bare system Accessibility dialog with no context reads as scary
             // for an app that watches typing — explain the why first.
             let alert = NSAlert()
-            alert.messageText = "Pretype needs Accessibility access"
+            alert.messageText = "Hunch needs Accessibility access"
             alert.informativeText = """
-            Accessibility is how Pretype reads the text field you're typing in, \
+            Accessibility is how Hunch reads the text field you're typing in, \
             catches the \(Settings.hotkeyStyle.label) key, and types accepted suggestions back.
 
             macOS will ask you to grant it next. Everything you type stays on this Mac.

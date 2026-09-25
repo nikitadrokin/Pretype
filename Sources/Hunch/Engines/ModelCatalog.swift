@@ -15,7 +15,7 @@ struct ModelOption {
     /// tier: E4B 6-bit where the tier affords ~6.8 GB (an eval A/B showed
     /// instruct only matches/beats base at 6–8 bit), 4-bit siblings on the
     /// tighter tiers — a handicapped instruct still beats swapping a model the
-    /// Mac can't hold. Overridable via PRETYPE_INSTRUCT_MODEL.
+    /// Mac can't hold. Overridable via HUNCH_INSTRUCT_MODEL.
     let instructModelID: String
 }
 

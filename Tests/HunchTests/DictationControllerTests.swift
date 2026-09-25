@@ -2,7 +2,7 @@ import AVFoundation
 import CoreAudio
 import CoreGraphics
 import XCTest
-@testable import Pretype
+@testable import Hunch
 
 /// A transcription session driven by the test instead of a microphone: partials
 /// are pushed by hand, `finish` returns a scripted transcript after an optional
@@ -552,7 +552,7 @@ final class DictationControllerTests: XCTestCase {
     func testCorrectionFetchGateAnswersForLocalIDs() {
         XCTAssertTrue(ModelStorage.isFetched(ModelCatalog.appleIntelligenceID))
         XCTAssertTrue(ModelStorage.isFetched("/Users/someone/models/my-finetune"))
-        XCTAssertFalse(ModelStorage.isFetched("pretype-test/definitely-not-downloaded"))
+        XCTAssertFalse(ModelStorage.isFetched("hunch-test/definitely-not-downloaded"))
     }
 
     /// The gate has to fail closed on a download IN FLIGHT, which is the whole
@@ -562,7 +562,7 @@ final class DictationControllerTests: XCTestCase {
     /// exactly that state behind, with no partial-file residue to spot it by.
     func testFetchGateReadsTheWeightsNotTheDirectory() throws {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("pretype-fetch-\(UUID().uuidString)")
+            .appendingPathComponent("hunch-fetch-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
 
         @discardableResult
@@ -823,7 +823,7 @@ final class DictationControllerTests: XCTestCase {
     /// to prevent.
     func testFetchGateNoIndexBranchChecksTheLinkResolves() throws {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("pretype-fetch-\(UUID().uuidString)")
+            .appendingPathComponent("hunch-fetch-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
         let revision = root.appendingPathComponent("snapshots/rev1")
         try FileManager.default.createDirectory(at: revision, withIntermediateDirectories: true)

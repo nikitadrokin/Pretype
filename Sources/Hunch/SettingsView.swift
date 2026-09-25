@@ -256,7 +256,7 @@ final class SettingsStore: ObservableObject {
                 + "so there is nothing to download from us and nothing to send anywhere."
         }
         if dictationMicDenied {
-            return "Microphone access is denied for Pretype, and macOS only ever asks once — "
+            return "Microphone access is denied for Hunch, and macOS only ever asks once — "
                 + "allow it under Privacy & Security → Microphone, then come back and switch "
                 + "dictation on."
         }
@@ -409,8 +409,8 @@ final class SettingsStore: ObservableObject {
         panel.allowsMultipleSelection = true
         panel.allowedContentTypes = [.applicationBundle]
         panel.directoryURL = URL(fileURLWithPath: "/Applications")
-        panel.prompt = "Disable Pretype Here"
-        panel.message = "Choose applications where Pretype should stay silent."
+        panel.prompt = "Disable Hunch Here"
+        panel.message = "Choose applications where Hunch should stay silent."
         guard panel.runModal() == .OK else { return }
         for url in panel.urls {
             let entry = (Bundle(url: url)?.bundleIdentifier ?? url.deletingPathExtension().lastPathComponent)
@@ -507,7 +507,7 @@ final class SettingsStore: ObservableObject {
         // .md and .txt both conform to public.plain-text.
         panel.allowedContentTypes = [.plainText]
         panel.prompt = "Import"
-        panel.message = "Choose plain-text or Markdown files you wrote — Pretype learns your phrasing from them."
+        panel.message = "Choose plain-text or Markdown files you wrote — Hunch learns your phrasing from them."
         guard panel.runModal() == .OK else { return }
         let urls = panel.urls
         importing = true
@@ -920,7 +920,7 @@ enum SettingsTab: String, CaseIterable {
         case .general: return "How suggestions look and where they run."
         case .suggestions: return "Tune quality, speed and precision — hover any control to preview its effect."
         case .model: return "Pick the on-device model. Everything is measured on real text."
-        case .personalization: return "Teach Pretype your voice — all on your Mac."
+        case .personalization: return "Teach Hunch your voice — all on your Mac."
         }
     }
 }
@@ -960,7 +960,7 @@ struct SettingsRootView: View {
                     .frame(width: 34, height: 34)
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(alignment: .firstTextBaseline, spacing: 5) {
-                        Text("Pretype").font(.headline)
+                        Text("Hunch").font(.headline)
                         if let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
                             Text("v\(v)").font(.caption2).foregroundStyle(.tertiary)
                         }
@@ -1325,7 +1325,7 @@ struct GeneralTab: View {
 
             Section("Turned off in these apps") {
                 if store.blacklist.isEmpty {
-                    Caption("Suggestions currently run everywhere (terminals are always excluded — ghost text next to shell commands is dangerous). Add apps where Pretype should stay silent.")
+                    Caption("Suggestions currently run everywhere (terminals are always excluded — ghost text next to shell commands is dangerous). Add apps where Hunch should stay silent.")
                 }
                 ForEach(store.blacklist, id: \.self) { entry in
                     BlacklistRow(entry: entry) { store.removeBlacklistEntry(entry) }
@@ -1367,7 +1367,7 @@ struct GeneralTab: View {
                     for: NSApplication.didBecomeActiveNotification)) { _ in
                     store.loginStatus = LoginItem.status
                 }
-                Caption("Pretype starts with your Mac and waits in the menu bar — no Dock icon, no window. "
+                Caption("Hunch starts with your Mac and waits in the menu bar — no Dock icon, no window. "
                     + "macOS owns this switch: it also lives in System Settings → General → Login Items, "
                     + "and flipping it there flips it here.")
                 if let note = LoginItem.note(store.loginStatus) {
@@ -1377,7 +1377,7 @@ struct GeneralTab: View {
 
             Section("Updates") {
                 Toggle("Check for updates automatically", isOn: $store.automaticUpdateCheck)
-                Caption("Asks GitHub once a day whether a newer release exists — the only request Pretype makes on its own, and it sends nothing about you. New versions are announced in the menu bar and installed by you; nothing is downloaded or replaced automatically. Off still leaves “Check for Updates…” in the menu.")
+                Caption("Asks GitHub once a day whether a newer release exists — the only request Hunch makes on its own, and it sends nothing about you. New versions are announced in the menu bar and installed by you; nothing is downloaded or replaced automatically. Off still leaves “Check for Updates…” in the menu.")
             }
         }
         .formStyle(.grouped)
@@ -1411,7 +1411,7 @@ private struct BlacklistRow: View {
             // .help is a hint, not a name — without this every row's remove
             // button announces identically.
             .accessibilityLabel("Stop excluding \(resolved.name)")
-            .help("Allow Pretype in this app again")
+            .help("Allow Hunch in this app again")
         }
     }
 }
@@ -1906,7 +1906,7 @@ struct PersonalTab: View {
                 }
                 HStack {
                     Caption(store.journalEnabled
-                        ? "The journal only grows while you type, which is why personalization is still thin. Import .txt or .md files you wrote and Pretype learns your words and reuses your own sentences as prompt examples — the files are only read, and Clear above forgets imported text too."
+                        ? "The journal only grows while you type, which is why personalization is still thin. Import .txt or .md files you wrote and Hunch learns your words and reuses your own sentences as prompt examples — the files are only read, and Clear above forgets imported text too."
                         : "Importing writes into the journal — turn “Keep suggestion journal” on first.")
                     Spacer()
                     Button {
@@ -1956,7 +1956,7 @@ struct PersonalTab: View {
             Button("Cancel", role: .cancel) { }
         } message: {
             Text(store.learnedWords > 0
-                 ? "This also forgets the \(store.learnedWords) words Pretype learned from you. It can't be undone."
+                 ? "This also forgets the \(store.learnedWords) words Hunch learned from you. It can't be undone."
                  : "This can't be undone.")
         }
     }

@@ -84,8 +84,8 @@ enum SettingsUI {
         let alert = NSAlert()
         alert.messageText = "Screen Recording permission"
         alert.informativeText = """
-        Pretype should now appear in System Settings → Privacy & Security → \
-        Screen Recording. Enable it there, then quit and relaunch Pretype — \
+        Hunch should now appear in System Settings → Privacy & Security → \
+        Screen Recording. Enable it there, then quit and relaunch Hunch — \
         macOS applies this permission only at app launch.
         """
         NSApp.activate(ignoringOtherApps: true)
@@ -115,12 +115,12 @@ enum SettingsUI {
                 NSWorkspace.shared.open(url)
             }
             let alert = NSAlert()
-            alert.messageText = "Pretype needs the microphone"
+            alert.messageText = "Hunch needs the microphone"
             alert.informativeText = """
             Dictation transcribes what you say on this Mac and types it into the field \
             you're in. Nothing is recorded to disk and nothing leaves your computer.
 
-            Allow Pretype under System Settings → Privacy & Security → Microphone, \
+            Allow Hunch under System Settings → Privacy & Security → Microphone, \
             then switch dictation on again.
             """
             NSApp.activate(ignoringOtherApps: true)

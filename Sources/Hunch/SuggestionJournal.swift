@@ -80,7 +80,7 @@ final class SuggestionJournal: @unchecked Sendable {
 
     private let url: URL
     private let maxBytes: Int
-    private let queue = DispatchQueue(label: "app.pretype.journal", qos: .utility)
+    private let queue = DispatchQueue(label: "app.hunch.journal", qos: .utility)
     private let encoder = JSONEncoder()
     private var appended = 0
     /// Retrieval corpus, lazily loaded from the file and kept current by
@@ -107,7 +107,7 @@ final class SuggestionJournal: @unchecked Sendable {
         } else {
             let dir = FileManager.default
                 .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("Pretype", isDirectory: true)
+                .appendingPathComponent("Hunch", isDirectory: true)
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             self.url = dir.appendingPathComponent("suggestion-journal.jsonl")
         }

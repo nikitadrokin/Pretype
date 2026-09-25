@@ -13,7 +13,7 @@ usage() {
   cat <<'EOF'
 Usage: ./Scripts/release.sh [options]
 
-Build, sign, package, tag, push, and publish a Pretype GitHub release locally.
+Build, sign, package, tag, push, and publish a Hunch GitHub release locally.
 
 Options:
   --dry-run          Build everything but do not commit, tag, push, or publish
@@ -99,11 +99,11 @@ step "Running tests"
 swift test
 
 step "Building signed app"
-PRETYPE_VERSION="$NEXT" PRETYPE_BUILD="$NEXT_BUILD" ./Scripts/package_app.sh release
+HUNCH_VERSION="$NEXT" HUNCH_BUILD="$NEXT_BUILD" ./Scripts/package_app.sh release
 
 step "Creating release ZIP"
 ./Scripts/dist.sh
-ARTIFACT="$ROOT/build/Pretype.app.zip"
+ARTIFACT="$ROOT/build/Hunch.app.zip"
 [[ -f "$ARTIFACT" ]] || fail "release artifact missing: $ARTIFACT"
 SHA256=$(shasum -a 256 "$ARTIFACT" | awk '{print $1}')
 printf 'Artifact: %s\nSHA-256: %s\n' "$ARTIFACT" "$SHA256"
@@ -139,16 +139,16 @@ fi
 
 if [[ "$INSTALL" == 1 ]]; then
   step "Installing the exact locally built app"
-  SOURCE_APP="$ROOT/build/dist/Pretype.app"
+  SOURCE_APP="$ROOT/build/dist/Hunch.app"
   [[ -d "$SOURCE_APP" ]] || fail "signed release app missing: $SOURCE_APP"
-  pkill -x Pretype 2>/dev/null || true
-  if [[ -d /Applications/Pretype.app ]]; then
-    BACKUP="$HOME/.Trash/Pretype-$NEXT_BUILD.app"
-    [[ ! -e "$BACKUP" ]] || BACKUP="$HOME/.Trash/Pretype-$NEXT_BUILD-$(date +%s).app"
-    mv /Applications/Pretype.app "$BACKUP"
+  pkill -x Hunch 2>/dev/null || true
+  if [[ -d /Applications/Hunch.app ]]; then
+    BACKUP="$HOME/.Trash/Hunch-$NEXT_BUILD.app"
+    [[ ! -e "$BACKUP" ]] || BACKUP="$HOME/.Trash/Hunch-$NEXT_BUILD-$(date +%s).app"
+    mv /Applications/Hunch.app "$BACKUP"
     echo "Previous app moved to $BACKUP"
   fi
-  ditto "$SOURCE_APP" /Applications/Pretype.app
-  open /Applications/Pretype.app
-  echo "Installed /Applications/Pretype.app"
+  ditto "$SOURCE_APP" /Applications/Hunch.app
+  open /Applications/Hunch.app
+  echo "Installed /Applications/Hunch.app"
 fi

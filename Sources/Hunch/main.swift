@@ -6,7 +6,7 @@ Settings.registerDefaults()
 MainActor.assumeIsolated {
     // Diagnostic: print what Accessibility exposes for the focused text field, to
     // debug caret positioning in tricky apps (Electron/Chromium, etc.):
-    // `Pretype --ax-probe`. The fuller dev/eval harness lives outside the app
+    // `Hunch --ax-probe`. The fuller dev/eval harness lives outside the app
     // (see dev-tools/), since it depends on the engine and overlay internals.
     if CommandLine.arguments.contains("--ax-probe") {
         _ = NSApplication.shared
@@ -33,18 +33,18 @@ MainActor.assumeIsolated {
     // produced — and, when a hold completes, each condition `begin()` checks,
     // so a silent refusal (blacklisted app, our own window frontmost, no
     // readable caret) names itself instead of looking like a dead feature.
-    // `Pretype --dictation-probe`; observes only, injects nothing.
+    // `Hunch --dictation-probe`; observes only, injects nothing.
     if CommandLine.arguments.contains("--dictation-probe") {
         _ = NSApplication.shared
         setvbuf(stdout, nil, _IOLBF, 0)
         print("bundled:            \(MicrophoneAccess.isBundled)")
         // The caveat is load-bearing: TCC answers for the RESPONSIBLE process,
         // and a probe launched from a shell inherits the terminal's microphone
-        // grant, not Pretype's. Only Diagnostics → Dictation, read inside the
-        // running app, states Pretype's own grant truthfully.
+        // grant, not Hunch's. Only Diagnostics → Dictation, read inside the
+        // running app, states Hunch's own grant truthfully.
         print("microphone auth:    \(MicrophoneAccess.status.rawValue) (3 = authorized)"
             + " — run from a terminal this is the TERMINAL's grant;"
-            + " Pretype's own is in its menu under Diagnostics → Dictation")
+            + " Hunch's own is in its menu under Diagnostics → Dictation")
         print("transcription:      \(Transcription.isSupported ? "available" : "UNAVAILABLE")")
         print("dictation enabled:  \(Settings.dictationEnabled)")
         print("gesture:            \(Settings.dictationGesture.label)")

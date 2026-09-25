@@ -92,7 +92,7 @@ final class AudioCapture {
     /// every keyboard event on the system and can trip
     /// `kCGEventTapDisabledByTimeout`. Serial, so a start and the stop that
     /// follows it can never run out of order.
-    private let sessionQueue = DispatchQueue(label: "app.pretype.dictation.session")
+    private let sessionQueue = DispatchQueue(label: "app.hunch.dictation.session")
     /// Bumped by every `start` and `stop`, so the delayed "after release"
     /// output-state log fires only when no newer capture has begun — the line
     /// exists to catch "the volume stayed changed", and measured mid-next-
@@ -326,7 +326,7 @@ private final class Sink: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate
     /// NOT a cross-capture ordering guarantee — at a mid-capture device swap
     /// the old sink's last in-flight buffer can reach the stream a beat after
     /// the new sink's first, about one buffer's worth of audio; inaudible.)
-    let queue = DispatchQueue(label: "app.pretype.dictation.capture")
+    let queue = DispatchQueue(label: "app.hunch.dictation.capture")
     private let target: AVAudioFormat?
     private let onBuffer: @Sendable (AVAudioPCMBuffer) -> Void
     private var converter: AVAudioConverter?

@@ -36,7 +36,7 @@ struct ModelTab: View {
             Section("Model") {
                 Label("Apple Intelligence", systemImage: "apple.intelligence")
                     .font(.headline)
-                Caption("Uses the Foundation Model managed by macOS. Pretype does not download, bundle, or manage model weights.")
+                Caption("Uses the Foundation Model managed by macOS. Hunch does not download, bundle, or manage model weights.")
                 HStack {
                     Text("Status")
                     Spacer()
@@ -190,7 +190,7 @@ struct ModelTab: View {
                             : "left context only — fill-in is unreliable below E4B class"))
                 }
                 .help(store.isAppleIntelligence
-                    ? "Apple Intelligence runs on the Neural Engine as the system model — Pretype doesn't set its style or fill-in; those are on-device-model settings."
+                    ? "Apple Intelligence runs on the Neural Engine as the system model — Hunch doesn't set its style or fill-in; those are on-device-model settings."
                     : (store.recommendation.fim
                         ? "Mid-line edits condition on what follows the cursor, so the completion meets the existing text instead of re-typing it."
                         : "Fill-in-the-middle is reliable on E4B-class models only, so it's skipped automatically here — not a setting, just how this model is driven."))

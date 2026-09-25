@@ -2,21 +2,21 @@
 import PackageDescription
 
 let package = Package(
-    name: "Pretype",
+    name: "Hunch",
     platforms: [
         .macOS("26.0")
     ],
     dependencies: [],
     targets: [
         .executableTarget(
-            name: "Pretype",
+            name: "Hunch",
             dependencies: [],
-            path: "Sources/Pretype"
+            path: "Sources/Hunch"
         ),
         .testTarget(
-            name: "PretypeTests",
-            dependencies: ["Pretype"],
-            path: "Tests/PretypeTests"
+            name: "HunchTests",
+            dependencies: ["Hunch"],
+            path: "Tests/HunchTests"
         )
     ]
 )

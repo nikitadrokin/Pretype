@@ -1,12 +1,12 @@
 # Architecture
 
-How Pretype is put together, for people reading the code. The user-facing
+How Hunch is put together, for people reading the code. The user-facing
 summary is in the [README](../README.md#how-it-works).
 
 ## Inference engines
 
 Two backends implement the `CompletionEngine` protocol
-(`Sources/Pretype/Engines/CompletionEngine.swift`):
+(`Sources/Hunch/Engines/CompletionEngine.swift`):
 
 * **In-process MLX** *(default)* — runs the selected model locally through
   Apple's `mlx-swift-lm`. Weights are downloaded from Hugging Face on first
@@ -53,7 +53,7 @@ On the Gemma builds the **Instruct** completion style swaps in an instruct
 sibling sized to that entry's RAM class, so no pick ever loads weights your Mac
 can't comfortably hold.
 
-Measured figures live in `Sources/Pretype/Engines/ModelMetrics.swift`; the
+Measured figures live in `Sources/Hunch/Engines/ModelMetrics.swift`; the
 protocol, datasets and significance tests behind them are in `Eval/BASELINE.md`.
 
 ## Latency
@@ -71,7 +71,7 @@ protocol, datasets and significance tests behind them are in `Eval/BASELINE.md`.
 ## Knowing when to stay quiet
 
 On real held-out text, an ungated autocomplete measures *net-negative*: the cost
-of reading wrong suggestions exceeds the keystrokes saved. So Pretype ships an
+of reading wrong suggestions exceeds the keystrokes saved. So Hunch ships an
 **opt-in confidence gate** (**Settings → Suggestions**, off by default, base
 style only): the first word's log-probability decides whether a suggestion is
 shown at all, against a threshold calibrated per model — chosen on one half of
@@ -95,7 +95,7 @@ Details and the measured swing are in `Eval/BASELINE.md`.
 
 ## Dictation
 
-Hold-to-talk, off by default, macOS 26+ (`Sources/Pretype/Dictation/`).
+Hold-to-talk, off by default, macOS 26+ (`Sources/Hunch/Dictation/`).
 
 * **The gesture** — `ModifierHold` in `KeyTap.swift`, the complement of the
   reply gesture's `ModifierDoubleTap`: a hold is never a tap and two taps are

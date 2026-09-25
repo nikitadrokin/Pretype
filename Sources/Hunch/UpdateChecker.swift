@@ -15,8 +15,8 @@ import AppKit
 /// link or the one-line Homebrew command, depending on how this copy arrived.
 @MainActor
 enum UpdateChecker {
-    private static let api = URL(string: "https://api.github.com/repos/nikiomori/Pretype/releases/latest")!
-    private static let page = URL(string: "https://github.com/nikiomori/Pretype/releases/latest")!
+    private static let api = URL(string: "https://api.github.com/repos/nikiomori/Hunch/releases/latest")!
+    private static let page = URL(string: "https://github.com/nikiomori/Hunch/releases/latest")!
     private static let defaults = UserDefaults.standard
 
     /// Version of a newer published release, or nil when we're current / haven't
@@ -30,7 +30,7 @@ enum UpdateChecker {
     /// What to tell a Homebrew user to run. `brew` has to move the cask's own
     /// metadata forward, so downloading over /Applications behind its back
     /// leaves the two disagreeing about what is installed.
-    static let upgradeCommand = "brew upgrade --cask pretype"
+    static let upgradeCommand = "brew upgrade --cask hunch"
 
     /// True when this copy came from the tap. The cask's metadata directory
     /// stays in the Caskroom even though the app itself is installed into
@@ -40,7 +40,7 @@ enum UpdateChecker {
     /// process from a menu item to learn something a directory already says.
     /// Apple Silicon only, so `/opt/homebrew` is the only prefix that can apply.
     static var isHomebrewInstall: Bool {
-        FileManager.default.fileExists(atPath: "/opt/homebrew/Caskroom/pretype")
+        FileManager.default.fileExists(atPath: "/opt/homebrew/Caskroom/hunch")
     }
 
     /// Fire-and-forget check at launch, at most once a day, and only if the user
