@@ -98,11 +98,11 @@ sed -i '' -E "s/^BUILD_NUMBER=.*/BUILD_NUMBER=$NEXT_BUILD/" version.env
 step "Running tests"
 swift test
 
-step "Building signed app"
-PRETYPE_VERSION="$NEXT" PRETYPE_BUILD="$NEXT_BUILD" ./Scripts/package_app.sh release
+step "Building ad-hoc signed app"
+SIGNING_MODE=adhoc PRETYPE_VERSION="$NEXT" PRETYPE_BUILD="$NEXT_BUILD" ./Scripts/package_app.sh release
 
 step "Creating release ZIP"
-./Scripts/dist.sh
+SIGNING_MODE=adhoc ./Scripts/dist.sh
 ARTIFACT="$ROOT/build/Pretype.app.zip"
 [[ -f "$ARTIFACT" ]] || fail "release artifact missing: $ARTIFACT"
 SHA256=$(shasum -a 256 "$ARTIFACT" | awk '{print $1}')

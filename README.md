@@ -52,12 +52,16 @@ tests, replaces the bundle, relaunches it, and verifies that it stayed running.
 ./Scripts/release.sh --install
 ```
 
-The release script bumps the patch version, runs the tests, builds and signs the
-app on this Mac, creates `build/Pretype.app.zip`, commits and tags the version,
-pushes it, and creates the GitHub Release with the ZIP attached. `--install`
-copies that exact locally built release into `/Applications`, so downloading it
-again is unnecessary. Use `--dry-run` to build without publishing, or
-`--version X.Y.Z`, `--minor`, or `--major` to control the version.
+The release script bumps the patch version, runs the tests, builds the app,
+creates `build/Pretype.app.zip`, commits and tags the version, pushes it, and
+creates the GitHub Release with the ZIP attached. Releases are always ad-hoc
+signed: the script does not use an Apple Development or Developer ID identity
+from the maintainer's account or organization. Because the app is not
+notarized, each user may need to allow it once in Privacy & Security or remove
+its quarantine attribute before opening it. `--install` copies that exact
+locally built release into `/Applications`, so downloading it again is
+unnecessary. Use `--dry-run` to build without publishing, or `--version X.Y.Z`,
+`--minor`, or `--major` to control the version.
 
 ## Architecture
 

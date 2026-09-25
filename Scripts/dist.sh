@@ -1,7 +1,7 @@
 #!/bin/bash
 # Package Pretype.app for distribution.
 #
-# Two modes, picked by what's in the keychain:
+# Two modes, picked by what's in the keychain unless SIGNING_MODE=adhoc:
 #   - "Developer ID Application" certificate present -> hardened-runtime sign,
 #     notarize, staple. Recipients just open the app. Notary credentials come
 #     from the keychain profile "pretype" (one-time local setup:
@@ -22,7 +22,10 @@ rm -rf "$DIST"; mkdir -p "$DIST"
 cp -R build/Pretype.app "$DIST/Pretype.app"
 rm -f build/Pretype.app.zip
 
-IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Developer ID Application/ {print $2; exit}')
+IDENTITY=""
+if [ "${SIGNING_MODE:-}" != adhoc ]; then
+    IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Developer ID Application/ {print $2; exit}')
+fi
 if [ -n "$IDENTITY" ]; then
     # Hardened runtime + secure timestamp are notarization requirements.
     # Single binary + resource-only bundles, so there is no nested code to sign.
@@ -69,7 +72,7 @@ Send build/Pretype.app.zip to testers (Apple Silicon, macOS 14+). To open it onc
   Privacy & Security -> scroll down -> "Open Anyway".
 
 Then grant Accessibility (and optionally Screen Recording) when prompted. The app
-is not notarized (that needs a paid Apple Developer account); with a
-"Developer ID Application" certificate in the keychain this script notarizes
-automatically instead.
+is not notarized (that needs a paid Apple Developer account). Unless
+SIGNING_MODE=adhoc is set, this script notarizes automatically when a
+"Developer ID Application" certificate is available in the keychain.
 EOF
