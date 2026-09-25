@@ -61,7 +61,9 @@ notarized, each user may need to allow it once in Privacy & Security or remove
 its quarantine attribute before opening it. `--install` copies that exact
 locally built release into `/Applications`, so downloading it again is
 unnecessary. Use `--dry-run` to build without publishing, or `--version X.Y.Z`,
-`--minor`, or `--major` to control the version.
+`--minor`, or `--major` to control the version. When the requested version
+already exists, the script asks for confirmation, rebuilds it, deletes the old
+GitHub release plus its local and remote tags, and republishes that version.
 
 ## Architecture
 

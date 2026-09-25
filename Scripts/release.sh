@@ -77,17 +77,26 @@ fi
 [[ "$NEXT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "invalid release version: $NEXT"
 
 TAG="v$NEXT"
-git rev-parse "$TAG" >/dev/null 2>&1 && fail "local tag already exists: $TAG"
+LOCAL_TAG_EXISTS=0
+REMOTE_TAG_EXISTS=0
+RELEASE_EXISTS=0
+git rev-parse --verify --quiet "refs/tags/$TAG" >/dev/null && LOCAL_TAG_EXISTS=1
 if [[ "$DRY_RUN" == 0 ]]; then
   git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1 \
-    && fail "remote tag already exists: $TAG"
-  gh release view "$TAG" >/dev/null 2>&1 && fail "GitHub release already exists: $TAG"
+    && REMOTE_TAG_EXISTS=1
+  gh release view "$TAG" >/dev/null 2>&1 && RELEASE_EXISTS=1
 fi
+REPLACING=0
+(( LOCAL_TAG_EXISTS || REMOTE_TAG_EXISTS || RELEASE_EXISTS )) && REPLACING=1
 
 printf 'Current version: %s (%s)\n' "$CURRENT" "$BUILD"
 printf 'Release version: %s (%s)\n' "$NEXT" "$((BUILD + 1))"
 if [[ "$DRY_RUN" == 0 ]]; then
-  read -r -p "Build and publish $TAG from this Mac? [y/N] " answer
+  if [[ "$REPLACING" == 1 ]]; then
+    read -r -p "$TAG already exists. Build it, then replace its GitHub release and tags? [y/N] " answer
+  else
+    read -r -p "Build and publish $TAG from this Mac? [y/N] " answer
+  fi
   [[ "$answer" =~ ^[Yy]$ ]] || { echo "Cancelled."; exit 0; }
 fi
 
@@ -97,6 +106,10 @@ sed -i '' -E "s/^BUILD_NUMBER=.*/BUILD_NUMBER=$NEXT_BUILD/" version.env
 
 step "Running tests"
 swift test
+
+step "Clearing old local release artifacts"
+rm -rf "$ROOT/build/Pretype.app" "$ROOT/build/dist"
+rm -f "$ROOT/build/Pretype.app.zip"
 
 step "Building ad-hoc signed app"
 SIGNING_MODE=adhoc PRETYPE_VERSION="$NEXT" PRETYPE_BUILD="$NEXT_BUILD" ./Scripts/package_app.sh release
@@ -109,6 +122,15 @@ SHA256=$(shasum -a 256 "$ARTIFACT" | awk '{print $1}')
 printf 'Artifact: %s\nSHA-256: %s\n' "$ARTIFACT" "$SHA256"
 
 if [[ "$DRY_RUN" == 1 ]]; then
+  if [[ "$REPLACING" == 1 ]]; then
+    cat <<EOF
+
+Publishing this version replaces the existing release. Before publishing manually:
+  gh release delete "$TAG" --yes
+  git push origin --delete "$TAG"
+  git tag -d "$TAG"
+EOF
+  fi
   cat <<EOF
 
 Dry run complete. Nothing was committed or published.
@@ -125,6 +147,22 @@ EOF
 else
   BRANCH=$(git branch --show-current)
   [[ -n "$BRANCH" ]] || fail "detached HEAD; releases require a branch"
+
+  if [[ "$REPLACING" == 1 ]]; then
+    step "Removing existing $TAG release and tags"
+    if [[ "$RELEASE_EXISTS" == 1 ]]; then
+      gh release delete "$TAG" --yes
+      echo "Deleted existing GitHub release"
+    fi
+    if [[ "$REMOTE_TAG_EXISTS" == 1 ]]; then
+      git push origin --delete "$TAG"
+      echo "Deleted existing remote tag"
+    fi
+    if [[ "$LOCAL_TAG_EXISTS" == 1 ]]; then
+      git tag -d "$TAG"
+      echo "Deleted existing local tag"
+    fi
+  fi
 
   step "Committing version and pushing tag"
   git add version.env
