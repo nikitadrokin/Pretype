@@ -70,4 +70,4 @@ Nowhere. See [Privacy & permissions](privacy.md) for what is stored locally and 
 
 ---
 
-Still stuck? [Open an issue](https://github.com/nikiomori/Pretype/issues) with the Diagnostics output — it redacts your text and carries only the pipeline state.
+Still stuck? [Open an issue](https://github.com/nikitadrokin/Pretype/issues) with the Diagnostics output — it redacts your text and carries only the pipeline state.

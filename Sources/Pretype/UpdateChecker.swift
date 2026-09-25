@@ -3,9 +3,8 @@ import AppKit
 /// Notify-only update check against the GitHub Releases API.
 ///
 /// It deliberately does NOT install anything. Published releases are still
-/// ad-hoc signed — `Scripts/dist.sh` and the release workflow grew a Developer
-/// ID path, but no certificate has been used for a tag yet — and replacing the
-/// bundle in place changes its code signature, which makes macOS revoke the
+/// ad-hoc signed, and replacing the bundle in place changes its code signature,
+/// which makes macOS revoke the
 /// Accessibility grant the whole app runs on. Telling the user to update
 /// themselves beats silently breaking their permissions. Swap this for Sparkle
 /// once releases actually ship Developer ID-signed and notarized: only then is
@@ -15,8 +14,8 @@ import AppKit
 /// link or the one-line Homebrew command, depending on how this copy arrived.
 @MainActor
 enum UpdateChecker {
-    private static let api = URL(string: "https://api.github.com/repos/nikiomori/Pretype/releases/latest")!
-    private static let page = URL(string: "https://github.com/nikiomori/Pretype/releases/latest")!
+    private static let api = URL(string: "https://api.github.com/repos/nikitadrokin/Pretype/releases/latest")!
+    private static let page = URL(string: "https://github.com/nikitadrokin/Pretype/releases/latest")!
     private static let defaults = UserDefaults.standard
 
     /// Version of a newer published release, or nil when we're current / haven't
