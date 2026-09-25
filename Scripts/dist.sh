@@ -15,7 +15,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-test -d build/Pretype.app || { echo "build/Pretype.app not found — run ./Scripts/make-app.sh first."; exit 1; }
+test -d build/Pretype.app || { echo "build/Pretype.app not found — run ./Scripts/package_app.sh first."; exit 1; }
 
 DIST=build/dist
 rm -rf "$DIST"; mkdir -p "$DIST"

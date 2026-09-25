@@ -11,11 +11,7 @@ let package = Package(
         .executableTarget(
             name: "Pretype",
             dependencies: [],
-            path: "Sources/Pretype",
-            exclude: [
-                "Engines/MLXEngine.swift",
-                "Engines/MLXEngine+Generation.swift",
-            ]
+            path: "Sources/Pretype"
         ),
         .testTarget(
             name: "PretypeTests",

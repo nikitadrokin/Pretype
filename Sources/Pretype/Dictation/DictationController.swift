@@ -366,7 +366,7 @@ final class DictationController {
         // as "the user refused" wiped `dictationEnabled` for the built app too.
         guard gates.micBundled() else {
             return refuse("not running as an .app — microphone access is granted by bundle",
-                          notice: .error("dictation needs the built app — run make-app.sh"), at: rect)
+                          notice: .error("dictation needs the built app — run package_app.sh"), at: rect)
         }
         guard gates.transcriptionSupported() else {
             return refuse("needs macOS 26", notice: .error("dictation needs macOS 26"), at: rect)

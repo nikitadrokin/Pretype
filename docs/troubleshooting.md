@@ -16,9 +16,9 @@ then re-grant.
 
 **`Last: engine returned no suggestion`** — the model had nothing it was willing to guess: too little context, or the output gates rejected what it produced. Keep typing.
 
-**No suggestions anywhere, MLX engine missing** — a source build without compiled Metal shaders. Use `./Scripts/make-app.sh` rather than plain `swift build`.
+**No suggestions anywhere, Apple Intelligence unavailable** — verify Apple Intelligence is enabled and its system model has finished preparing. Pretype deliberately does not download a fallback model.
 
-**`open build/Pretype.app` fails with `-600`, or Finder says "the application is not open anymore"** *(building from source)* — a previous instance was still running when its bundle was replaced, so LaunchServices tries to activate a process whose bundle no longer exists instead of launching the new build. `make-app.sh` now quits the running instance of that build first (a copy installed in /Applications is left alone, so you can keep dogfooding one while rebuilding the other); on an older checkout, quit Pretype from the menu bar before rebuilding, or launch with `open -n build/Pretype.app`.
+**`open build/Pretype.app` fails with `-600`, or Finder says "the application is not open anymore"** *(building from source)* — use `./Scripts/compile_and_run.sh`; it stops the instance from this checkout before replacing and relaunching the bundle.
 
 **Gatekeeper blocks the first launch** — releases before the Developer ID signing are ad-hoc signed. Clear the quarantine flag with `xattr -dr com.apple.quarantine /Applications/Pretype.app`, or open the app via **System Settings → Privacy & Security → Open Anyway**.
 
@@ -41,7 +41,7 @@ It isn't silent about it. The menu-bar item that normally offers *Disable in …
 Work down the list in **Settings → General → Dictation** — it names the blocker itself:
 
 * **The section says it needs macOS 26.** Dictation uses the system's own on-device speech models. On macOS 14–15 those don't exist, and Pretype doesn't bundle a model of its own.
-* **The section says "built app only".** A raw `swift build` binary has no bundle, and macOS grants microphone access by bundle. Run `./Scripts/make-app.sh` and launch the `.app`.
+* **The section says "built app only".** A raw `swift build` binary has no bundle, and macOS grants microphone access by bundle. Run `./Scripts/package_app.sh` and launch the `.app`.
 * **The section says the microphone is denied.** macOS only ever asks once, so a past refusal never re-prompts. Re-allow Pretype under **System Settings → Privacy & Security → Microphone** — the button under the notice jumps straight to the pane — then switch dictation on again.
 * **The language line warns that macOS has no model for it.** Apple's newer speech model covers 30 locales; the rest fall back to the system dictation model, and a few languages have neither. The Settings caption names which one your current language gets — dictation can't invent a model Pretype doesn't ship.
 * **The first press only says "getting the dictation model ready…"** — macOS is downloading that language, once. Try again in a minute; the download continues even after you let go.

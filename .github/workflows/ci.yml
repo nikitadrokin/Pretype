@@ -21,15 +21,13 @@ concurrency:
 env:
   XCODE_VERSION: '26.3'
 
-# `swift build` catches compile regressions on every PR. It does NOT exercise
-# Scripts/make-app.sh — the xcodebuild/Metal path that produces the shipped
-# bundle — so that runs on pushes to main only: cheap enough per merge, and it
+# `swift build` catches compile regressions on every PR. It does not exercise
+# Scripts/package_app.sh, so packaging runs on pushes to main: cheap per merge, and
 # means the packaging path can't first break on a tag push, where the only
 # symptom is a broken draft release.
 jobs:
   build:
     name: swift build (macOS)
-    # macOS 15 ships Xcode 16.3+ (Swift 6.1) — required by mlx-swift-lm 3.31.3.
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -59,24 +57,18 @@ jobs:
           restore-keys: |
             spm-${{ runner.os }}-${{ env.XCODE_VERSION }}-
 
-      # Metal shader compilation is a separate component on Xcode 26+; a no-op
-      # on older Xcodes. Tolerated if it isn't available on the runner.
-      - name: Install Metal toolchain
-        run: xcodebuild -downloadComponent MetalToolchain || true
-
       - name: Build
         run: swift build
 
       # The unit tests cover only pure logic (output gates, hotkey matching,
-      # spell-check helpers, app policy) — no Metal/MLX inference — so they run
-      # headless on the runner even though the full engine can't.
+      # spell-check helpers, app policy) and run headless on the runner.
       - name: Test
         run: swift test
 
-      # The release build is the first thing that ever runs make-app.sh, and a
+      # The release build is the first thing that ever runs package_app.sh, and a
       # broken bundle there only shows up as a bad download. Same script, same
-      # runner, one merge earlier. PRs skip it: an xcodebuild Release of MLX is
-      # minutes, and a compile break already reddens `swift build` above.
+      # runner, one merge earlier. PRs skip it because `swift build` already
+      # catches compile failures.
       - name: Package app bundle
         if: github.event_name == 'push'
-        run: ./Scripts/make-app.sh
+        run: SIGNING_MODE=adhoc ./Scripts/package_app.sh
