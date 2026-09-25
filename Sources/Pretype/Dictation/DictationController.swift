@@ -5,7 +5,7 @@ import os
 
 /// Subsystem for the dictation trail. File-scope, so `note` can stay
 /// `nonisolated` — a log handle is not main-actor state.
-private let dictationLog = OSLog(subsystem: "app.hunch.Hunch", category: "dictation")
+private let dictationLog = OSLog(subsystem: "app.pretype.Pretype", category: "dictation")
 
 /// Hold-to-talk dictation: hold the modifier, speak, release — the words are
 /// typed into the field you were already in.
@@ -18,7 +18,7 @@ private let dictationLog = OSLog(subsystem: "app.hunch.Hunch", category: "dictat
 ///
 /// Deliberately never automatic. Nothing records unless a key is held, every
 /// capture ends the moment anything else happens (a keystroke, a focus change,
-/// Hunch being paused, the input device disappearing), and the transcript is
+/// Pretype being paused, the input device disappearing), and the transcript is
 /// typed only into the field that was focused when the key went down.
 @MainActor
 final class DictationController {
@@ -134,7 +134,7 @@ final class DictationController {
     /// holding the key do nothing". A handful of lines per capture costs
     /// nothing and makes the whole flow observable from outside:
     ///
-    ///     log show --last 5m --predicate 'subsystem == "app.hunch.Hunch"'
+    ///     log show --last 5m --predicate 'subsystem == "app.pretype.Pretype"'
     ///
     /// `%{public}@` is load-bearing: the unified log redacts interpolated
     /// arguments by default, and an `NSLog("...%@", message)` here showed up as
@@ -149,7 +149,7 @@ final class DictationController {
     /// in the same order, read from the APP's own TCC identity. A feature whose
     /// refusals are (deliberately) quiet has to be answerable without a
     /// rebuild — and running the probe binary from a terminal reads the
-    /// terminal's microphone grant, not Hunch's, so this is the only place
+    /// terminal's microphone grant, not Pretype's, so this is the only place
     /// that can state it truthfully.
     var statusLine: String {
         guard Settings.dictationEnabled else { return "off" }
@@ -245,7 +245,7 @@ final class DictationController {
         discard(notice: wasWorking ? .hint("dictation dropped — the caret moved") : nil)
     }
 
-    /// Focus moved, Hunch was paused, the app is quitting: whatever was being
+    /// Focus moved, Pretype was paused, the app is quitting: whatever was being
     /// captured can no longer be typed anywhere sensible.
     func invalidate() {
         _ = hold.interrupt()
@@ -311,9 +311,9 @@ final class DictationController {
             owner.showTransientOverlay(notice, at: anchor, host: owner.fallbackHostStyle)
         }
         // The three "we should not be here at all" cases draw nothing on
-        // purpose — a paused or blacklisted app is one Hunch has been told to
+        // purpose — a paused or blacklisted app is one Pretype has been told to
         // keep out of, pills included.
-        guard Settings.enabled else { return refuse("Hunch is paused") }
+        guard Settings.enabled else { return refuse("Pretype is paused") }
         guard !gates.appIsActive() else { return refuse("our own window is frontmost") }
         guard !AppPolicy.isBlacklisted(owner.typingContext.bundleID) else {
             return refuse("off in \(owner.typingContext.appName ?? "this app")")

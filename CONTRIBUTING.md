@@ -1,6 +1,6 @@
 # Contributing
 
-Hunch is a SwiftPM macOS menu-bar app targeting macOS 26 or newer. It uses
+Pretype is a SwiftPM macOS menu-bar app targeting macOS 26 or newer. It uses
 Apple's system `FoundationModels` framework exclusively; there are no external
 model packages, weights, or Metal build steps.
 
@@ -14,7 +14,7 @@ swift test
 
 Pass `--test` to the last command to run the test suite before packaging and
 launching. The script stops only the instance launched from this checkout,
-rebuilds `build/Hunch.app`, launches it, and verifies that it stays alive.
+rebuilds `build/Pretype.app`, launches it, and verifies that it stays alive.
 
 To package without launching:
 

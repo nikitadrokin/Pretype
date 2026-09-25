@@ -1,13 +1,13 @@
 # Troubleshooting & FAQ
 
-Open **Diagnostics** from the menu-bar icon — *Context* shows what Hunch sees (app, window, field) and *Pipeline* shows what the last completion did.
+Open **Diagnostics** from the menu-bar icon — *Context* shows what Pretype sees (app, window, field) and *Pipeline* shows what the last completion did.
 
 ## Common issues
 
 **`Accessibility: NOT granted ✗`** — if you're running the raw binary from a terminal, macOS attributes the permission to the *terminal*, so grant it there or run the `.app` bundle. If you built locally, a changed code signature can confuse macOS:
 
 ```bash
-tccutil reset Accessibility app.hunch.Hunch
+tccutil reset Accessibility app.pretype.Pretype
 ```
 
 then re-grant.
@@ -16,11 +16,11 @@ then re-grant.
 
 **`Last: engine returned no suggestion`** — the model had nothing it was willing to guess: too little context, or the output gates rejected what it produced. Keep typing.
 
-**No suggestions anywhere, Apple Intelligence unavailable** — verify Apple Intelligence is enabled and its system model has finished preparing. Hunch deliberately does not download a fallback model.
+**No suggestions anywhere, Apple Intelligence unavailable** — verify Apple Intelligence is enabled and its system model has finished preparing. Pretype deliberately does not download a fallback model.
 
-**`open build/Hunch.app` fails with `-600`, or Finder says "the application is not open anymore"** *(building from source)* — use `./Scripts/compile_and_run.sh`; it stops the instance from this checkout before replacing and relaunching the bundle.
+**`open build/Pretype.app` fails with `-600`, or Finder says "the application is not open anymore"** *(building from source)* — use `./Scripts/compile_and_run.sh`; it stops the instance from this checkout before replacing and relaunching the bundle.
 
-**Gatekeeper blocks the first launch** — releases before the Developer ID signing are ad-hoc signed. Clear the quarantine flag with `xattr -dr com.apple.quarantine /Applications/Hunch.app`, or open the app via **System Settings → Privacy & Security → Open Anyway**.
+**Gatekeeper blocks the first launch** — releases before the Developer ID signing are ad-hoc signed. Clear the quarantine flag with `xattr -dr com.apple.quarantine /Applications/Pretype.app`, or open the app via **System Settings → Privacy & Security → Open Anyway**.
 
 ## FAQ
 
@@ -30,20 +30,20 @@ It passes straight through. The event tap only swallows the key while a suggesti
 
 ### Suggestions stopped appearing in one app
 
-Deliberate. Once Hunch has offered a few dozen completions in an app and under 2% of them were taken, it stops offering there — a model that is wrong in a particular field is pure interruption, and generating them costs battery. Everything else keeps working: inline typo fixes, emoji shortcodes and <kbd>⌥Tab</kbd> rewrites are unaffected.
+Deliberate. Once Pretype has offered a few dozen completions in an app and under 2% of them were taken, it stops offering there — a model that is wrong in a particular field is pure interruption, and generating them costs battery. Everything else keeps working: inline typo fixes, emoji shortcodes and <kbd>⌥Tab</kbd> rewrites are unaffected.
 
 Only offers you could actually have taken count toward that. The pipeline re-offers after every keystroke, so a ghost that was replaced by the next one, or that vanished in under 0.4 s, was never a suggestion you declined — and one you typed out yourself, word for word, means the model was right. None of those reach the tally, and neither do they reach the acceptance figure in **Diagnostics**.
 
-It isn't silent about it. The menu-bar item that normally offers *Disable in …* becomes **Resume in Slack** instead, hovering the numbers behind the decision (*"Hunch went quiet here: 2% of 74 suggestions taken."*), and one click clears the record and starts offering again from scratch.
+It isn't silent about it. The menu-bar item that normally offers *Disable in …* becomes **Resume in Slack** instead, hovering the numbers behind the decision (*"Pretype went quiet here: 2% of 74 suggestions taken."*), and one click clears the record and starts offering again from scratch.
 
 ### Dictation does nothing when I hold the key
 
 Work down the list in **Settings → General → Dictation** — it names the blocker itself:
 
-* **The section says it needs macOS 26.** Dictation uses the system's own on-device speech models. On macOS 14–15 those don't exist, and Hunch doesn't bundle a model of its own.
+* **The section says it needs macOS 26.** Dictation uses the system's own on-device speech models. On macOS 14–15 those don't exist, and Pretype doesn't bundle a model of its own.
 * **The section says "built app only".** A raw `swift build` binary has no bundle, and macOS grants microphone access by bundle. Run `./Scripts/package_app.sh` and launch the `.app`.
-* **The section says the microphone is denied.** macOS only ever asks once, so a past refusal never re-prompts. Re-allow Hunch under **System Settings → Privacy & Security → Microphone** — the button under the notice jumps straight to the pane — then switch dictation on again.
-* **The language line warns that macOS has no model for it.** Apple's newer speech model covers 30 locales; the rest fall back to the system dictation model, and a few languages have neither. The Settings caption names which one your current language gets — dictation can't invent a model Hunch doesn't ship.
+* **The section says the microphone is denied.** macOS only ever asks once, so a past refusal never re-prompts. Re-allow Pretype under **System Settings → Privacy & Security → Microphone** — the button under the notice jumps straight to the pane — then switch dictation on again.
+* **The language line warns that macOS has no model for it.** Apple's newer speech model covers 30 locales; the rest fall back to the system dictation model, and a few languages have neither. The Settings caption names which one your current language gets — dictation can't invent a model Pretype doesn't ship.
 * **The first press only says "getting the dictation model ready…"** — macOS is downloading that language, once. Try again in a minute; the download continues even after you let go.
 * **The pill never appears.** It is a *hold*, not a tap: keep the key down for about half a second before speaking. Either side of the modifier works. Any other keypress — or a mouse click — cancels a capture in progress, so don't type while talking.
 * **My music goes flat and quiet while I dictate.** That is the headset switching to call mode: Bluetooth carries either good playback or a two-way call, never both. **Settings → General → Dictation → Microphone** is set to *Automatic*, which avoids it by recording from the built-in microphone whenever your earbuds are also playing your audio — if you pinned the headset there instead, this is the cost. The sound comes back once the capture ends and the headset switches back out of call mode.
@@ -53,7 +53,7 @@ Work down the list in **Settings → General → Dictation** — it names the bl
 Still silent? **Diagnostics → `Dictation:`** states the app's own view in one line. For the whole picture, run the built binary with `--dictation-probe`: it prints the environment, then every modifier edge with the hold state it produced, and — when a hold completes — each condition the capture checks, so a refusal names itself.
 
 ```bash
-./build/Hunch.app/Contents/MacOS/Hunch --dictation-probe
+./build/Pretype.app/Contents/MacOS/Pretype --dictation-probe
 ```
 
 ### What does it cost in battery and memory?
@@ -70,4 +70,4 @@ Nowhere. See [Privacy & permissions](privacy.md) for what is stored locally and 
 
 ---
 
-Still stuck? [Open an issue](https://github.com/nikiomori/Hunch/issues) with the Diagnostics output — it redacts your text and carries only the pipeline state.
+Still stuck? [Open an issue](https://github.com/nikiomori/Pretype/issues) with the Diagnostics output — it redacts your text and carries only the pipeline state.

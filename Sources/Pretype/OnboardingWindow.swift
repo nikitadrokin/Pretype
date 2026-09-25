@@ -8,7 +8,7 @@ final class OnboardingWindow: NSPanel {
     private let container = NSView()
     private let visualBackdrop = NSVisualEffectView()
     
-    private let titleLabel = NSTextField(labelWithString: "Hunch is Ready")
+    private let titleLabel = NSTextField(labelWithString: "Pretype is Ready")
     private let subtitleLabel = NSTextField(labelWithString: "Try typing in TextEdit")
     
     private let statusLabel = NSTextField(labelWithString: "Waiting for suggestion…")
@@ -256,17 +256,17 @@ final class OnboardingWindow: NSPanel {
         guard !suggestionActive else { return }
         switch controller?.engine.state {
         case .preparing(let detail):
-            titleLabel.stringValue = "Setting up Hunch"
+            titleLabel.stringValue = "Setting up Pretype"
             subtitleLabel.stringValue = "Preparing Apple Intelligence"
             statusLabel.textColor = .secondaryLabelColor
             statusLabel.stringValue = detail
         case .failed(let detail):
-            titleLabel.stringValue = "Hunch hit a problem"
+            titleLabel.stringValue = "Pretype hit a problem"
             subtitleLabel.stringValue = "The completion engine couldn't start"
             statusLabel.textColor = .systemRed
             statusLabel.stringValue = detail
         case .ready, .none:
-            titleLabel.stringValue = "Hunch is Ready"
+            titleLabel.stringValue = "Pretype is Ready"
             subtitleLabel.stringValue = "Try typing in TextEdit"
             statusLabel.textColor = .secondaryLabelColor
             statusLabel.stringValue = "Waiting for suggestion…"

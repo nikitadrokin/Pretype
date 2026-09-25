@@ -210,7 +210,7 @@ final class SuggestionController: NSObject {
         if let dir = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
             try? FileManager.default.removeItem(
-                at: dir.appendingPathComponent("Hunch/personalization.json"))
+                at: dir.appendingPathComponent("Pretype/personalization.json"))
         }
         if Settings.personalizationLevel != .off {
             PersonalNgram.shared.prepareIfNeeded()
@@ -367,7 +367,7 @@ final class SuggestionController: NSObject {
         focusTracker.focusedTextElement ?? AXText.systemFocusedTextElement()
     }
 
-    /// True while one of Hunch's own windows (Settings, Debug console) is
+    /// True while one of Pretype's own windows (Settings, Debug console) is
     /// frontmost. The session-wide key tap still fires for keystrokes into our
     /// own fields, but `FocusTracker.attach` skips our own pid *without*
     /// detaching, so `focusedTextElement` stays pinned to the last external
@@ -972,7 +972,7 @@ final class SuggestionController: NSObject {
             lastEvent = "reply: \(why)"
             DebugLog.shared.log("REPLY", "not composing — \(why)")
         }
-        guard Settings.enabled else { return stop("Hunch is paused") }
+        guard Settings.enabled else { return stop("Pretype is paused") }
         guard !isOwnUIFrontmost else { return stop("our own window is frontmost") }
         guard !AppPolicy.isBlacklisted(typingContext.bundleID) else {
             return stop("off in \(typingContext.appName ?? "this app")")
@@ -1441,7 +1441,7 @@ final class SuggestionController: NSObject {
         // not in the element the capture pinned — so the checks `begin()` made
         // hundreds of milliseconds ago have to be remade at the moment of
         // injection. Our own app frontmost means the transcript would type into
-        // Hunch's menu or Settings; secure input means a password field took
+        // Pretype's menu or Settings; secure input means a password field took
         // focus in a way no AX notification reports (a browser engaging kernel
         // secure entry, a SecurityAgent sheet).
         //
@@ -1680,7 +1680,7 @@ extension SuggestionController: FocusTrackerDelegate {
 
     func focusTrackerDidResignActiveApp(_ tracker: FocusTracker) {
         // A capture dies with the app it started in. This is the only signal
-        // that fires when the app switched *to* is Hunch itself — the tracker
+        // that fires when the app switched *to* is Pretype itself — the tracker
         // never attaches to our own pid, so no focus change bumps
         // `focusGeneration`, and a capture left alive here would pass its
         // stale-focus check and type the transcript into our own menu or

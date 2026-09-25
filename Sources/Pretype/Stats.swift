@@ -262,7 +262,7 @@ enum Stats {
 
     // MARK: - Per-app track record
 
-    /// Suggestions shown and taken per app, so Hunch can stop offering where it
+    /// Suggestions shown and taken per app, so Pretype can stop offering where it
     /// demonstrably isn't helping instead of interrupting forever. Kept lifetime
     /// rather than daily — a verdict needs a few dozen suggestions, which is more
     /// than a day of typing in most apps.
@@ -273,7 +273,7 @@ enum Stats {
     private static let appKey = "stats.byApp"
     /// Chances (see `isChance`) needed before the record says anything at all.
     static let appVerdictMinShown = 60
-    /// Below this share taken, the app is one Hunch is only interrupting.
+    /// Below this share taken, the app is one Pretype is only interrupting.
     /// Deliberately brutal: the point is to stop being useless somewhere, not to
     /// prune every app that is merely below average.
     ///

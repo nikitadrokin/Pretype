@@ -17,7 +17,7 @@ enum ScreenContext {
         CGRequestScreenCaptureAccess()
     }
 
-    /// Makes Hunch appear in System Settings → Screen Recording: TCC only
+    /// Makes Pretype appear in System Settings → Screen Recording: TCC only
     /// lists an app after it actually attempts a capture query, a plain
     /// CGRequestScreenCaptureAccess() is not enough on modern macOS.
     static func registerWithTCC() {
@@ -88,7 +88,7 @@ enum ScreenContext {
 
             return try recognizeText(in: image, regionOfInterest: roi, excluding: typedText, maxChars: maxChars)
         } catch {
-            NSLog("Hunch: screen capture failed: %@", error.localizedDescription)
+            NSLog("Pretype: screen capture failed: %@", error.localizedDescription)
             return nil
         }
     }

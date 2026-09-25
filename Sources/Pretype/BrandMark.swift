@@ -1,13 +1,13 @@
 import AppKit
 
-/// The Hunch brand mark — a double chevron flowing into a text caret (`»|`).
+/// The Pretype brand mark — a double chevron flowing into a text caret (`»|`).
 ///
 /// Drawn in code (not loaded from a bundled asset) so it stays vector-crisp at
 /// any menu-bar size / backing scale and renders as a proper template image that
 /// adapts to light/dark menu bars. The chevrons are constant; the caret morphs
-/// to signal engine state, so the icon is recognisably Hunch in every state
+/// to signal engine state, so the icon is recognisably Pretype in every state
 /// instead of being swapped out for a generic SF Symbol. Coordinates mirror
-/// `Assets/hunch-glyph.svg` and use a top-left (flipped) coordinate space.
+/// `Assets/pretype-glyph.svg` and use a top-left (flipped) coordinate space.
 enum BrandMark {
     enum State: String { case ready, disabled, preparing, failed, listening }
 

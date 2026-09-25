@@ -72,5 +72,5 @@ body:
   - type: input
     id: version
     attributes:
-      label: Hunch version / commit
+      label: Pretype version / commit
       placeholder: e.g. 0.1.0 or a git SHA

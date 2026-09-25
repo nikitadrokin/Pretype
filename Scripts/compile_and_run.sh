@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-APP="$ROOT/build/Hunch.app"
-PATTERN="$APP/Contents/MacOS/Hunch"
+APP="$ROOT/build/Pretype.app"
+PATTERN="$APP/Contents/MacOS/Pretype"
 
 if [[ "${1:-}" == "--test" || "${1:-}" == "-t" ]]; then
   swift test -q
@@ -15,10 +15,10 @@ open "$APP"
 
 for _ in {1..10}; do
   if pgrep -f "$PATTERN$" >/dev/null 2>&1; then
-    echo "Hunch is running."
+    echo "Pretype is running."
     exit 0
   fi
   sleep 0.4
 done
-echo "ERROR: Hunch exited immediately; check Console.app crash reports." >&2
+echo "ERROR: Pretype exited immediately; check Console.app crash reports." >&2
 exit 1

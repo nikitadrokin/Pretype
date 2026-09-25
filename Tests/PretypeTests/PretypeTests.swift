@@ -2,9 +2,9 @@ import XCTest
 import Carbon
 import CoreGraphics
 import SwiftUI
-@testable import Hunch
+@testable import Pretype
 
-final class HunchTests: XCTestCase {
+final class PretypeTests: XCTestCase {
 
     // The output gate decides what raw model text reaches the user's keystrokes —
     // the single most safety-critical pure function in the app. Pin its rules.
@@ -1247,7 +1247,7 @@ final class HunchTests: XCTestCase {
     // path all have to behave exactly as the menu claims they do.
     @MainActor
     func testUnproductiveAppRecord() {
-        let app = "test.hunch.unproductive"     // shared defaults with the real app
+        let app = "test.pretype.unproductive"     // shared defaults with the real app
         defer { Stats.clearRecord(for: app) }
         Stats.clearRecord(for: app)
 
@@ -1315,7 +1315,7 @@ final class HunchTests: XCTestCase {
         XCTAssertTrue(chance(.superseded, 10, took: true))
 
         // And the booking itself follows the rule, per app.
-        let app = "test.hunch.chances"
+        let app = "test.pretype.chances"
         defer { Stats.clearRecord(for: app) }
         Stats.clearRecord(for: app)
         Stats.recordOffer(outcome: .superseded, shownForMs: 220, tookAny: false, app: app)
@@ -1670,7 +1670,7 @@ final class HunchTests: XCTestCase {
         }
     }
 
-    // Hold-to-talk decides when Hunch opens the microphone, so every rule
+    // Hold-to-talk decides when Pretype opens the microphone, so every rule
     // about what is NOT a hold is pinned here: a brushed modifier, a chord, a
     // tap, the other side's key, and — the one that makes the two gestures able
     // to share a modifier — a double tap.

@@ -35,7 +35,7 @@ final class KeyTap {
     private var scrollMonitor: Any?
     private var mouseMonitor: Any?
     /// Local twins of the two global monitors. A GLOBAL monitor, by definition,
-    /// never sees events delivered to our own app — so a click on Hunch's own
+    /// never sees events delivered to our own app — so a click on Pretype's own
     /// status item or Settings window mid-hold would cancel nothing, and the
     /// capture would survive to type its transcript into our own UI. The local
     /// monitors close exactly that hole; both observe and pass the event on.
@@ -102,7 +102,7 @@ final class KeyTap {
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         )
         guard let tapPort else {
-            NSLog("Hunch: failed to create event tap — is Accessibility permission granted?")
+            NSLog("Pretype: failed to create event tap — is Accessibility permission granted?")
             return
         }
         runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tapPort, 0)

@@ -16,7 +16,7 @@ import Foundation
 /// verdict booked on it stay byte-identical; see `Eval/runs-2026-07-25/`. Only
 /// `perLangOfAll` grew; the headline EN+RU figures below are untouched by it.
 /// p50 provenance: MLX models from the clean 2026-07-15 solo runs (the 07-16
-/// pass ran with `HUNCH_EVAL_LOGPROB=1`, which inflates wall-clock); Apple
+/// pass ran with `PRETYPE_EVAL_LOGPROB=1`, which inflates wall-clock); Apple
 /// Intelligence from the 07-16 solo run (no logP pass there), EN/RU-weighted.
 struct ModelMetrics {
     let id: String

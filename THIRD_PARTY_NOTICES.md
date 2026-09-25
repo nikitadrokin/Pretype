@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-Hunch is MIT-licensed (see [LICENSE](LICENSE)), but the released `Hunch.app` statically
+Pretype is MIT-licensed (see [LICENSE](LICENSE)), but the released `Pretype.app` statically
 bundles the Swift packages below, and at runtime the app downloads model weights that carry
 their own licenses. This file lists both.
 
@@ -30,8 +30,8 @@ recorded in [Package.resolved](Package.resolved).
 
 ## Model weights (downloaded at runtime, not distributed with the app)
 
-Hunch never ships model weights; it downloads the model you select from Hugging Face on
-first use. Those weights are licensed by their publishers, not by Hunch's MIT license:
+Pretype never ships model weights; it downloads the model you select from Hugging Face on
+first use. Those weights are licensed by their publishers, not by Pretype's MIT license:
 
 | Model family | Publisher | License |
 | :--- | :--- | :--- |
@@ -40,5 +40,5 @@ first use. Those weights are licensed by their publishers, not by Hunch's MIT li
 | Qwen 2.5 / 3.5 | Alibaba (Qwen) | Apache-2.0 — see the [model card](https://huggingface.co/Qwen) |
 | Ternary Bonsai | prism-ml | See the [model card](https://huggingface.co/prism-ml) |
 
-By downloading a model through Hunch you accept its publisher's terms. Check the model
+By downloading a model through Pretype you accept its publisher's terms. Check the model
 card on Hugging Face for the authoritative, current license of any specific repository.

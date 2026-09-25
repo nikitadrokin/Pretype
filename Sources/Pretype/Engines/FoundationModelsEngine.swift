@@ -2,7 +2,7 @@ import Foundation
 import FoundationModels
 
 /// Prompt recipe for the Apple Intelligence path, A/B-swept on eval-v2 via
-/// `HUNCH_FM_PROMPT_VARIANT`. Apple's model — unlike Gemma — exposes a real
+/// `PRETYPE_FM_PROMPT_VARIANT`. Apple's model — unlike Gemma — exposes a real
 /// system-instructions slot, so the sweep is over how much to put in the
 /// instructions vs the user turn, and whether to scaffold the text:
 /// - `fewshot`   rich instructions + worked examples (the original recipe)
@@ -31,18 +31,18 @@ final class FoundationModelsEngine: CompletionEngine {
 
     static let greedy = LockedValue<Bool>(false)
 
-    /// Prompt recipe: env `HUNCH_FM_PROMPT_VARIANT` (for harness A/B) wins,
+    /// Prompt recipe: env `PRETYPE_FM_PROMPT_VARIANT` (for harness A/B) wins,
     /// else the menu-selected `Settings.fmPromptVariant`, else `fewshot`. Read
     /// live per request, so a menu change applies on the next keystroke.
     static var promptVariant: FMPromptVariant {
-        ProcessInfo.processInfo.environment["HUNCH_FM_PROMPT_VARIANT"]
+        ProcessInfo.processInfo.environment["PRETYPE_FM_PROMPT_VARIANT"]
             .flatMap(FMPromptVariant.init(rawValue:)) ?? Settings.fmPromptVariant
     }
 
-    /// Live-path sampling temperature (env `HUNCH_FM_TEMPERATURE`); nil ⇒
+    /// Live-path sampling temperature (env `PRETYPE_FM_TEMPERATURE`); nil ⇒
     /// Apple's default sampler. Ignored under `greedy`.
     private static var temperatureOverride: Double? {
-        ProcessInfo.processInfo.environment["HUNCH_FM_TEMPERATURE"].flatMap(Double.init)
+        ProcessInfo.processInfo.environment["PRETYPE_FM_TEMPERATURE"].flatMap(Double.init)
     }
 
     private static let instructions = """

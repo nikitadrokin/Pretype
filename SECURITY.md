@@ -2,7 +2,7 @@
 
 ## Privacy model
 
-Hunch is a local-first macOS utility. Because it reads text system-wide, its
+Pretype is a local-first macOS utility. Because it reads text system-wide, its
 trust model matters — here is exactly what it does:
 
 - **All inference is on device.** Completions run locally, either via MLX
@@ -26,7 +26,7 @@ and keystroke injection) and — only when you enable OCR — **Screen Recording
 
 ## Supported versions
 
-Hunch is pre-1.0 and under active development. Security fixes are applied to
+Pretype is pre-1.0 and under active development. Security fixes are applied to
 the latest `main`; there are no long-term support branches yet.
 
 ## Reporting a vulnerability

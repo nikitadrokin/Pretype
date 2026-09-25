@@ -26,7 +26,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         super.init()
         if let button = statusItem.button {
             button.image = BrandMark.statusItemImage(.ready)
-            button.image?.accessibilityDescription = "Hunch"
+            button.image?.accessibilityDescription = "Pretype"
         }
         buildMenu()
         menu.delegate = self
@@ -44,7 +44,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     /// Maps engine/permission/enabled state to the menu-bar symbol + tooltip.
     private func updateStatusIcon() {
         guard let button = statusItem.button else { return }
-        // Always the Hunch mark; the caret morphs to reflect state.
+        // Always the Pretype mark; the caret morphs to reflect state.
         let state: BrandMark.State
         if !Permissions.isTrusted {
             state = .failed                       // attention: Accessibility not granted
@@ -62,16 +62,16 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         iconPhase = state == .preparing ? (iconPhase + 1) % 3 : 0
         // Rebuild the template image only when the drawn state changes; this token
         // gates the redraw and must NOT double as the accessible label.
-        let id = "hunch.\(state.rawValue).\(iconPhase)"
+        let id = "pretype.\(state.rawValue).\(iconPhase)"
         if id != lastIconID {
             button.image = BrandMark.statusItemImage(state, phase: iconPhase)
             lastIconID = id
         }
         // VoiceOver reads the image description as the button's name, so it gets
-        // the human status line — the same text the tooltip shows ("Hunch —
-        // MiniCPM ready", "Hunch — downloading 42%"). The last pipeline event
+        // the human status line — the same text the tooltip shows ("Pretype —
+        // MiniCPM ready", "Pretype — downloading 42%"). The last pipeline event
         // explains per-app silence on hover, so it stays in the tooltip only.
-        let status = "Hunch — \(statusInfo().text)"
+        let status = "Pretype — \(statusInfo().text)"
         button.image?.accessibilityDescription = status
         var tip = status
         if let last = suggestionController?.lastEvent { tip += "\nLast: \(last)" }
@@ -108,7 +108,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             keyEquivalent: ""
         )
         permissionItem.toolTip =
-            "Hunch needs Accessibility permission to read the field you're typing in."
+            "Pretype needs Accessibility permission to read the field you're typing in."
         permissionItem.target = self
         permissionItem.image = symbol("exclamationmark.triangle.fill")
         menu.addItem(permissionItem)
@@ -157,7 +157,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         hintItem.view = hintsHost
         menu.addItem(hintItem)
         menu.addItem(NSMenuItem(
-            title: "Quit Hunch",
+            title: "Quit Pretype",
             action: #selector(NSApplication.terminate(_:)),
             keyEquivalent: "q"
         ))
@@ -182,7 +182,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     /// Keeps a title inside the header's width. Every row here is a short verb
     /// except the two that name an app or a language, and those were setting the
     /// menu's width themselves — so the whole menu grew by a third whenever
-    /// Hunch had gone quiet somewhere, and snapped back the next time it
+    /// Pretype had gone quiet somewhere, and snapped back the next time it
     /// hadn't. The header is the one item with a designed width, so it stays the
     /// only one that sets it; anything longer is truncated here and the full
     /// sentence goes on the item's tooltip.
@@ -239,7 +239,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     }
 
     /// "Disable in Mail" / "Enable in Mail", named from the context the user was
-    /// last typing in. Opening the menu makes Hunch frontmost, but
+    /// last typing in. Opening the menu makes Pretype frontmost, but
     /// FocusTracker.attach bails on our own PID *before* it detaches, so
     /// typingContext still names the app behind the menu.
     private func refreshAppBlacklistItem() {
@@ -265,13 +265,13 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             appBlacklistItem.image = symbol("hand.raised")
         } else if AppPolicy.userBlacklistEntries(for: bundleID).isEmpty,
                   Stats.isUnproductive(bundleID), let record = Stats.record(for: bundleID) {
-            // Hunch silenced itself here. The block is ours, not the user's, so
+            // Pretype silenced itself here. The block is ours, not the user's, so
             // the item that would offer "Disable" becomes the way back instead.
             // It says only that — the accept rate that justified going quiet is a
             // sentence-long aside that widened the menu every time it appeared,
             // so it hovers rather than prints.
             appBlacklistItem.title = fitting("Resume in \(name)")
-            appBlacklistItem.toolTip = "Hunch went quiet here: "
+            appBlacklistItem.toolTip = "Pretype went quiet here: "
                 + "\(record.accepted * 100 / record.shown)% of \(record.shown) suggestions taken."
             appBlacklistItem.action = #selector(resumeInFrontmostApp)
             appBlacklistItem.image = symbol("play.circle")
@@ -448,7 +448,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         suggestionController?.dismiss()
     }
 
-    /// Wipe the app's track record, which is the only thing keeping Hunch
+    /// Wipe the app's track record, which is the only thing keeping Pretype
     /// quiet there — the next keystroke offers again, and the app has to earn
     /// its way back to `isUnproductive` from zero.
     @objc private func resumeInFrontmostApp() {
@@ -501,7 +501,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             }
             let alert = NSAlert()
             if let latest {
-                alert.messageText = "Hunch \(latest) is the latest version"
+                alert.messageText = "Pretype \(latest) is the latest version"
                 alert.informativeText = "You're up to date."
                 alert.addButton(withTitle: "OK")
                 NSApp.activate(ignoringOtherApps: true)
@@ -526,12 +526,12 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     /// updates change the code signature of an ad-hoc signed build.
     private func presentUpdate(_ version: String) {
         let alert = NSAlert()
-        alert.messageText = "Hunch \(version) is available"
+        alert.messageText = "Pretype \(version) is available"
         let brew = UpdateChecker.isHomebrewInstall
         alert.informativeText = "You're on \(UpdateChecker.currentVersion). "
             + (brew
                 ? "Installed with Homebrew — upgrade with:\n\n    \(UpdateChecker.upgradeCommand)"
-                : "Download it and replace Hunch in Applications — updates are never installed for you.")
+                : "Download it and replace Pretype in Applications — updates are never installed for you.")
             + "\n\nmacOS may ask you to grant Accessibility again afterwards."
         alert.addButton(withTitle: brew ? "Copy Command" : "Download…")
         alert.addButton(withTitle: "Later")

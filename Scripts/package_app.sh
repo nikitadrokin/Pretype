@@ -5,12 +5,12 @@ CONF=${1:-release}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 
-APP_NAME=Hunch
-BUNDLE_ID=app.hunch.Hunch
+APP_NAME=Pretype
+BUNDLE_ID=app.pretype.Pretype
 MACOS_MIN_VERSION=26.0
 source "$ROOT/version.env"
-MARKETING_VERSION=${HUNCH_VERSION:-$MARKETING_VERSION}
-BUILD_NUMBER=${HUNCH_BUILD:-$BUILD_NUMBER}
+MARKETING_VERSION=${PRETYPE_VERSION:-$MARKETING_VERSION}
+BUILD_NUMBER=${PRETYPE_BUILD:-$BUILD_NUMBER}
 ARCH=${ARCHES:-$(uname -m)}
 
 swift build -c "$CONF" --arch "$ARCH"
@@ -44,7 +44,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <key>CFBundleExecutable</key><string>${APP_NAME}</string>
 <key>CFBundleIdentifier</key><string>${BUNDLE_ID}</string>
 <key>CFBundleName</key><string>${APP_NAME}</string>
-<key>CFBundleIconFile</key><string>Hunch</string>
+<key>CFBundleIconFile</key><string>Pretype</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>${MARKETING_VERSION}</string>
 <key>CFBundleVersion</key><string>${BUILD_NUMBER}</string>
@@ -52,11 +52,11 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSMicrophoneUsageDescription</key>
-<string>Hunch transcribes what you say into the text field you are typing in, on this Mac. Audio is never recorded to disk and never leaves your computer.</string>
+<string>Pretype transcribes what you say into the text field you are typing in, on this Mac. Audio is never recorded to disk and never leaves your computer.</string>
 </dict></plist>
 PLIST
 
-[[ -f Assets/Hunch.icns ]] && cp Assets/Hunch.icns "$APP/Contents/Resources/Hunch.icns"
+[[ -f Assets/Pretype.icns ]] && cp Assets/Pretype.icns "$APP/Contents/Resources/Pretype.icns"
 xattr -cr "$APP"
 find "$APP" -name '._*' -delete
 
@@ -65,10 +65,10 @@ if [[ -z "$IDENTITY" && "${SIGNING_MODE:-}" != adhoc ]]; then
   IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | awk '/Apple Development/ {print $2; exit}')
 fi
 if [[ -n "$IDENTITY" ]]; then
-  codesign --force --sign "$IDENTITY" --entitlements Scripts/Hunch.entitlements "$APP"
+  codesign --force --sign "$IDENTITY" --entitlements Scripts/Pretype.entitlements "$APP"
   echo "Signed with: $IDENTITY"
 else
-  codesign --force --sign - --entitlements Scripts/Hunch.entitlements "$APP"
+  codesign --force --sign - --entitlements Scripts/Pretype.entitlements "$APP"
   echo "Signed ad hoc"
 fi
 

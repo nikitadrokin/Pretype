@@ -11,7 +11,7 @@ struct DebugEntry {
 /// renders it live. Cheap enough to keep enabled permanently.
 final class DebugLog: @unchecked Sendable {
     static let shared = DebugLog()
-    static let didAppend = Notification.Name("HunchDebugLogDidAppend")
+    static let didAppend = Notification.Name("PretypeDebugLogDidAppend")
 
     private let lock = NSLock()
     private var entries: [DebugEntry] = []
@@ -124,7 +124,7 @@ final class DebugWindowController: NSObject, NSWindowDelegate, NSSearchFieldDele
             backing: .buffered,
             defer: false
         )
-        window.title = "Hunch Debug Console"
+        window.title = "Pretype Debug Console"
         window.isReleasedWhenClosed = false
         window.center()
         window.delegate = self
@@ -507,7 +507,7 @@ final class DebugWindowController: NSObject, NSWindowDelegate, NSSearchFieldDele
 
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.plainText]
-        panel.nameFieldStringValue = "hunch-debug-\(Int(Date().timeIntervalSince1970)).txt"
+        panel.nameFieldStringValue = "pretype-debug-\(Int(Date().timeIntervalSince1970)).txt"
         panel.prompt = "Export"
         guard panel.runModal() == .OK, let url = panel.url else { return }
 

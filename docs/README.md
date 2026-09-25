@@ -7,7 +7,7 @@
 [Fine-tuning](finetuning.md)
 
 Every `.md` here except this file is published at
-[hunch.app/docs](https://hunch.app/docs) — the landing repo pulls this
+[pretype.app/docs](https://pretype.app/docs) — the landing repo pulls this
 folder at build time and renders it. Write for both: keep links relative
 (a sibling `.md` becomes a docs route, `../` becomes a GitHub link), and use
 markdown or a plain `<img src="…">` for figures so the image gets published
@@ -20,22 +20,22 @@ kinds live here, and each refreshes differently.
 
 ## Rendered art — `demo*.gif`, `hero.png`, `shot-modes.png`
 
-Drawn programmatically by the `HunchHeroArt` generator in the git-ignored
+Drawn programmatically by the `PretypeHeroArt` generator in the git-ignored
 `dev-tools/` tree. Core Graphics only, no app code, deterministic 2×, so a
 fresh clone always produces byte-identical output. Regenerate everything:
 
 ```sh
 cd dev-tools/HeroArt
-swift run HunchHeroArt --all ../../docs
+swift run PretypeHeroArt --all ../../docs
 ```
 
 Individual pieces (`--gif` takes a storyboard name — `demo`, `typo` or `fix`):
 
 ```sh
-swift run HunchHeroArt --hero ../../docs/hero.png
-swift run HunchHeroArt --shot-modes ../../docs/shot-modes.png
-swift run HunchHeroArt --gif typo ../../docs/demo-typo.gif   # needs `magick`
-swift run HunchHeroArt --gif-frames fix /tmp/frames          # PNG storyboard only
+swift run PretypeHeroArt --hero ../../docs/hero.png
+swift run PretypeHeroArt --shot-modes ../../docs/shot-modes.png
+swift run PretypeHeroArt --gif typo ../../docs/demo-typo.gif   # needs `magick`
+swift run PretypeHeroArt --gif-frames fix /tmp/frames          # PNG storyboard only
 ```
 
 | File | What |
@@ -45,7 +45,7 @@ swift run HunchHeroArt --gif-frames fix /tmp/frames          # PNG storyboard on
 | `demo-fix.gif` | Fix selection: `⌥Tab` → decode beat → rewrite → `⏎` |
 | `shot-modes.png` | Inline ghost text vs the floating panel, side by side |
 | `hero.png` | A single completion line — the GitHub **Social preview**, not used in the README |
-| `hunch-logo.png`, `hunch-logo-dark.png` | The mark in the README header; hand-authored, not generated |
+| `pretype-logo.png`, `pretype-logo-dark.png` | The mark in the README header; hand-authored, not generated |
 
 GIFs are assembled with ImageMagick using one undithered 128-colour palette and
 a 3% frame-diff tolerance — dithering sprays noise that defeats the frame diff
@@ -78,7 +78,7 @@ Generated from the shipping catalog, so it can't drift from the app:
 python3 dev-tools/gen-readme-chart.py
 ```
 
-It reads `Sources/Hunch/Engines/ModelMetrics.swift` directly — both
+It reads `Sources/Pretype/Engines/ModelMetrics.swift` directly — both
 `ModelMetrics.all` (latency, RAM) and `perLangOfAll` (the per-language cells it
 averages). Re-run it after any metrics rebooking. The script asserts its own
 premise — that English is a tie and the multilingual column is not — so a

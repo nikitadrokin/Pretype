@@ -283,7 +283,7 @@ enum HotkeyStyle: String, CaseIterable {
 
 /// The completion knobs, resolved with environment overrides winning over
 /// stored settings so the `--eval` / `--complete` harness can A/B them without
-/// touching the UI (HUNCH_COMPLETION_STYLE / _LENGTH / _CUSTOM_INSTRUCTIONS /
+/// touching the UI (PRETYPE_COMPLETION_STYLE / _LENGTH / _CUSTOM_INSTRUCTIONS /
 /// _PERSONALIZATION).
 struct CompletionConfig {
     var style: CompletionStyle
@@ -293,12 +293,12 @@ struct CompletionConfig {
 
     static func resolved() -> CompletionConfig {
         let env = ProcessInfo.processInfo.environment
-        let style = env["HUNCH_COMPLETION_STYLE"].flatMap(CompletionStyle.init(rawValue:))
+        let style = env["PRETYPE_COMPLETION_STYLE"].flatMap(CompletionStyle.init(rawValue:))
             ?? Settings.completionStyle
-        let length = env["HUNCH_COMPLETION_LENGTH"].flatMap(CompletionLength.init(rawValue:))
+        let length = env["PRETYPE_COMPLETION_LENGTH"].flatMap(CompletionLength.init(rawValue:))
             ?? Settings.completionLength
-        let instructions = env["HUNCH_CUSTOM_INSTRUCTIONS"] ?? Settings.customInstructions
-        let personalization = env["HUNCH_PERSONALIZATION"].flatMap(PersonalizationLevel.init(rawValue:))
+        let instructions = env["PRETYPE_CUSTOM_INSTRUCTIONS"] ?? Settings.customInstructions
+        let personalization = env["PRETYPE_PERSONALIZATION"].flatMap(PersonalizationLevel.init(rawValue:))
             ?? Settings.personalizationLevel
         return CompletionConfig(
             style: style, length: length,
@@ -500,7 +500,7 @@ enum Settings {
             "dictationGesture": DictationGesture.option.rawValue,
             // The transcript goes through the same minimal-edit fix the ⌥⇥
             // flow uses — free on top of a generation the user is already
-            // waiting for, and it is what makes this Hunch's dictation
+            // waiting for, and it is what makes this Pretype's dictation
             // rather than a second copy of the system's.
             "dictationPolish": true,
             "dictationLanguage": "auto",
@@ -550,7 +550,7 @@ enum Settings {
         set { defaults.set(newValue, forKey: "suggestionJournal") }
     }
 
-    /// Whether Hunch may ask GitHub once a day whether a newer release exists
+    /// Whether Pretype may ask GitHub once a day whether a newer release exists
     /// (see `UpdateChecker`). Off means the app makes no outbound request the
     /// user didn't start. The menu's manual check works either way.
     static var automaticUpdateCheck: Bool {
@@ -560,7 +560,7 @@ enum Settings {
 
     /// Retrieval-augmented few-shot: inject the user's own most-similar past
     /// accepted phrases into the prompt. A no-op until the journal has data;
-    /// the eval harness A/Bs it via HUNCH_RAG. Always on since 2026-07-17
+    /// the eval harness A/Bs it via PRETYPE_RAG. Always on since 2026-07-17
     /// (UI toggle retired — a measured win at zero cost; clearing the journal
     /// is the way to forget the phrases).
     static var personalExamplesEnabled: Bool {
@@ -737,7 +737,7 @@ enum Settings {
 
     /// Prompt recipe for the Apple Intelligence engine (no effect on the MLX
     /// path). `fewshot` measured best on eval-v2; `directive` is fastest. The
-    /// env override `HUNCH_FM_PROMPT_VARIANT` still wins for A/B in the harness.
+    /// env override `PRETYPE_FM_PROMPT_VARIANT` still wins for A/B in the harness.
     static var fmPromptVariant: FMPromptVariant {
         get { FMPromptVariant(rawValue: defaults.string(forKey: "fmPromptVariant") ?? "") ?? .fewshot }
         set { defaults.set(newValue.rawValue, forKey: "fmPromptVariant") }
@@ -805,7 +805,7 @@ enum Settings {
     }
 }
 
-/// Start Hunch with the Mac. Deliberately NOT a `Settings` key: the truth
+/// Start Pretype with the Mac. Deliberately NOT a `Settings` key: the truth
 /// lives in launchd, and the user can flip the same switch in System Settings →
 /// General → Login Items. A mirrored bool would drift into a switch that lies,
 /// so every read goes back to `SMAppService.mainApp.status`.
@@ -829,7 +829,7 @@ enum LoginItem {
                 + "and macOS registers login items by bundle."
         }
         return status == .requiresApproval
-            ? "macOS is holding this one: allow Hunch in System Settings → General → Login Items."
+            ? "macOS is holding this one: allow Pretype in System Settings → General → Login Items."
             : nil
     }
 
