@@ -1362,7 +1362,7 @@ final class PretypeTests: XCTestCase {
             todayFigure: ("10", "min"), todayText: "10 min", totalText: "13 h 40 min"
         )
         let header = NSHostingView(rootView: MenuHeaderView(
-            statusColor: .green, statusText: "MiniCPM5-1B-Base: ready",
+            statusColor: .green, statusText: "Ready",
             statusOK: true, savings: savings, acceptLabel: "Tab"
         ))
         let hints = NSHostingView(rootView: MenuHintsView(hints: [

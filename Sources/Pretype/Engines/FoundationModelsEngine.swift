@@ -98,7 +98,7 @@ final class FoundationModelsEngine: CompletionEngine {
     var statusLine: String? {
         switch stateBox.get() {
         case .preparing(let detail): return "Apple Intelligence: \(detail)"
-        case .ready: return "Apple Intelligence: ready (system model)"
+        case .ready: return "Ready"
         case .failed(let detail): return "Apple Intelligence: \(detail)"
         }
     }

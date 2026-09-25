@@ -35,16 +35,21 @@ struct MenuHeaderView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 7) {
-                Circle()
-                    .fill(statusColor)
-                    .frame(width: 7, height: 7)
-                Text(statusText)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(statusOK ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
+            // A healthy background utility should be quiet. Surface status only
+            // when the user needs to wait or act; the menu-bar mark already
+            // communicates that Pretype is running normally.
+            if !statusOK {
+                HStack(spacing: 7) {
+                    Circle()
+                        .fill(statusColor)
+                        .frame(width: 7, height: 7)
+                    Text(statusText)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
             }
 
             if savings.isEmpty {

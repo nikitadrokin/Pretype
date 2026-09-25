@@ -69,7 +69,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         }
         // VoiceOver reads the image description as the button's name, so it gets
         // the human status line — the same text the tooltip shows ("Pretype —
-        // MiniCPM ready", "Pretype — downloading 42%"). The last pipeline event
+        // Ready", "Pretype — downloading 42%"). The last pipeline event
         // explains per-app silence on hover, so it stays in the tooltip only.
         let status = "Pretype — \(statusInfo().text)"
         button.image?.accessibilityDescription = status
@@ -375,7 +375,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         }
         switch controller.engine.state {
         case .ready:
-            return (.systemGreen, controller.engine.statusLine ?? "\(controller.engine.name) ready")
+            return (.systemGreen, "Ready")
         case .preparing(let detail):
             return (.systemOrange, detail)
         case .failed(let detail):

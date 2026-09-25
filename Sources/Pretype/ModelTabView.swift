@@ -33,18 +33,6 @@ struct ModelTab: View {
 
     var body: some View {
         Form {
-            Section("Model") {
-                Label("Apple Intelligence", systemImage: "apple.intelligence")
-                    .font(.headline)
-                Caption("Uses the Foundation Model managed by macOS. Pretype does not download, bundle, or manage model weights.")
-                HStack {
-                    Text("Status")
-                    Spacer()
-                    Text(store.statusText)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
             Section("Context") {
                 Toggle("Use screen context (OCR)", isOn: $store.screenContext)
                 Toggle("Use clipboard context", isOn: $store.clipboardContext)

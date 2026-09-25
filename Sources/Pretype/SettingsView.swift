@@ -716,7 +716,7 @@ final class SettingsStore: ObservableObject {
         if let engine = controller?.engine {
             switch engine.state {
             case .ready:
-                text = "\(engine.name) — ready"
+                text = "Ready"
                 color = .green
             case .preparing(let detail):
                 text = "\(engine.name) — \(detail)"
@@ -762,48 +762,6 @@ final class SettingsStore: ObservableObject {
     }
 }
 
-// MARK: - Effect badges
-
-/// A compact measured-effect chip: what a setting does to speed, quality or
-/// memory. The tooltip carries the actual measurement and its source — every
-/// number here comes from an eval run, never an estimate.
-struct EffectBadge: View {
-    enum Tone { case quality, speed, memory, caution, neutral }
-    let icon: String
-    let text: String
-    var tone = Tone.neutral
-    var source: String?
-
-    var body: some View {
-        // The capsule and the symbol carry the tone; 11pt text in the tone color
-        // sits at 1.8–2.3:1 on a light form. Primary ink keeps it readable in
-        // both appearances without losing the color language.
-        Label { Text(text) } icon: {
-            // Tone stays on the symbol (the leaf modifier wins over the outer
-            // .primary), so the badge keeps the shared metric color language
-            // while the 11pt text gets readable contrast.
-            Image(systemName: icon).foregroundStyle(color)
-        }
-            .font(.caption2.weight(.medium))
-            .lineLimit(1)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .foregroundStyle(.primary)
-            .background(color.opacity(0.18), in: Capsule())
-            .help(source ?? text)
-    }
-
-    private var color: Color {
-        switch tone {
-        case .quality: return .green
-        case .speed: return .blue
-        case .memory: return .teal
-        case .caution: return .orange
-        case .neutral: return Color.gray
-        }
-    }
-}
-
 /// How much evidence stands behind a figure, as a strength scale rather than a
 /// row of arithmetic. "n = 280" tells most people nothing — sampling error
 /// shrinks with the square root of the sample, so the number is not readable at
@@ -843,17 +801,6 @@ struct SampleBadge: View {
             + "so two models closer than that are a tie, not a ranking.")
         .accessibilityElement()
         .accessibilityLabel("Confidence: \(samples) samples, give or take \(marginPP) points")
-    }
-}
-
-/// A wrapping row of effect badges under a control.
-struct BadgeRow: View {
-    let badges: [EffectBadge]
-    var body: some View {
-        HStack(spacing: 6) {
-            ForEach(Array(badges.enumerated()), id: \.offset) { $0.element }
-            Spacer(minLength: 0)
-        }
     }
 }
 
@@ -975,27 +922,29 @@ struct SettingsRootView: View {
             .padding(.vertical, 10)
         }
         .safeAreaInset(edge: .bottom) {
-            HStack(alignment: .top, spacing: 7) {
-                // Orange == .preparing: a download, a model load or a warm-up.
-                // An indeterminate spinner is honest for all three, and the
-                // detail wraps instead of truncating away in a 176pt column.
-                Group {
-                    if store.statusColor == .orange && !store.statusText.isEmpty {
-                        ProgressView().controlSize(.small).scaleEffect(0.6)
-                    } else {
-                        Circle().fill(store.statusText.isEmpty ? Color.secondary : store.statusColor)
+            if !store.statusText.isEmpty && store.statusColor != .green {
+                HStack(alignment: .top, spacing: 7) {
+                    // Orange == .preparing: a download, a model load or a warm-up.
+                    // An indeterminate spinner is honest for all three, and the
+                    // detail wraps instead of truncating away in a 176pt column.
+                    Group {
+                        if store.statusColor == .orange {
+                            ProgressView().controlSize(.small).scaleEffect(0.6)
+                        } else {
+                            Circle().fill(store.statusColor)
+                        }
                     }
+                    .frame(width: 8, height: 8)
+                    .padding(.top, 3)   // align with the caption's first baseline
+                    Text(store.statusText)
+                        .font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                        .help(store.statusText)
+                    Spacer(minLength: 0)
                 }
-                .frame(width: 8, height: 8)
-                .padding(.top, 3)   // align with the caption's first baseline
-                Text(store.statusText.isEmpty ? "Engine idle" : store.statusText)
-                    .font(.caption).foregroundStyle(.secondary)
-                    .lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                    .help(store.statusText)
-                Spacer(minLength: 0)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
         }
     }
 
@@ -1618,15 +1567,6 @@ struct SuggestionsTab: View {
 
     var body: some View {
         Form {
-            // Apple Intelligence runs as the macOS system model on the Neural
-            // Engine: Style and the precision gate never reach it (EngineCoordinator
-            // sends only length + persona), and their badges quote MLX-model figures
-            // that are false for it — so those tuning sections are on-device only.
-            if store.isAppleIntelligence {
-                Section {
-                    Caption("Apple Intelligence runs as the macOS system model on the Neural Engine — Style and the precision gate are on-device-model controls that don't apply here. Length below still shapes each suggestion; teach its voice from the Personalization tab.")
-                }
-            }
             if !store.isAppleIntelligence {
                 Section {
                     Toggle("Use recommended settings", isOn: $store.useRecommended)
@@ -1653,7 +1593,6 @@ struct SuggestionsTab: View {
                                        text: "Instruct is broken on \(store.selectedModelName) — it answers the text instead of continuing it (~0% first-word measured)",
                                        fixTitle: "Switch to Base") { withAnimation(.easeInOut(duration: 0.18)) { store.style = .base } }
                     }
-                    BadgeRow(badges: styleBadges)
                     Caption(store.style == .instruct
                         ? (store.instructUnusable
                             ? "Instruct only works on models with a usable instruct sibling (the Gemma tiers) — pick one in the Model pane, or use Base here."
@@ -1672,19 +1611,6 @@ struct SuggestionsTab: View {
                         RequirementRow(met: false,
                                        text: "Base style — it thresholds the base model's own confidence",
                                        fixTitle: "Switch to Base") { withAnimation(.easeInOut(duration: 0.18)) { store.style = .base } }
-                    } else {
-                        BadgeRow(badges: [
-                            EffectBadge(icon: "scope", text: "62–67% first-word on what it shows", tone: .quality,
-                                        source: "Out-of-sample split-half calibration, τ≈−0.9: 62–67% first-word accuracy at ~30% of suggestions offered — eval-real, n=870, 2026-07-15."),
-                            EffectBadge(icon: "hand.raised", text: "offers ~30% of the time (vs 81%)", tone: .caution,
-                                        source: "The other side of the trade: roughly two of three suggestions are withheld as not-confident-enough — coverage ~30% vs 81% ungated on the default model (eval-real, n=870, 2026-07-15)."),
-                        ])
-                        BadgeRow(badges: [
-                            EffectBadge(icon: "bolt", text: "no added latency", tone: .speed,
-                                        source: "Reads the first-word log-probability the decoder already produced — zero extra generation."),
-                            EffectBadge(icon: "keyboard", text: "net keystrokes: −5% → +11%", tone: .quality,
-                                        source: "Typing simulation (λ=2, E2B-8bit, verified on the held-out half): ungated suggestions cost −5% net keystrokes; gated save +11% — eval-real, 2026-07-15."),
-                        ])
                     }
                     Caption("Trades coverage for precision: far fewer suggestions, far more of them right — read straight off the decoder, so it costs nothing. Off means more (but less certain) suggestions.")
                 }
@@ -1699,85 +1625,10 @@ struct SuggestionsTab: View {
                               hover: { length, hovering in
                                   store.setHover(.length(length), hovering)
                               })
-                BadgeRow(badges: lengthBadges)
                 Caption("\(store.hotkeyStyle.label) still accepts one word at a time; length caps how far a single suggestion runs ahead. Low-confidence endings are trimmed automatically, so this is a maximum, not a promise.")
             }
         }
         .formStyle(.grouped)
-    }
-
-    private var styleBadges: [EffectBadge] {
-        if store.style == .base {
-            return [
-                EffectBadge(icon: "checkmark.seal", text: "more accurate on real text", tone: .quality,
-                            source: "First-word 33% vs 22% of shown suggestions (Base vs Instruct+persona, same E4B-6bit family), McNemar p≈0.0005 — eval-real, n=870, 2026-07-15."),
-                EffectBadge(icon: "memorychip", text: "no second model", tone: .memory,
-                            source: "Instruct loads a separate instruct-tuned sibling (up to ~6.8 GB on E4B); Base runs only the selected model."),
-                EffectBadge(icon: "hand.raised", text: "can abstain", tone: .neutral,
-                            source: "Base offers nothing on ~17% of keystrokes instead of forcing a guess (coverage 83% vs 99% for Instruct) — fewer wrong flashes."),
-            ]
-        }
-        var badges = [
-            EffectBadge(icon: "text.quote", text: "85% first-word on authored text", tone: .quality,
-                        source: "eval-v2 (40 hand-authored samples) with the auto-persona: 85% first-word (EN 88 / RU 81). On real held-out text Base measures better (33% vs 22%) — pick by what you type."),
-            EffectBadge(icon: "person.text.rectangle", text: "persona steering", tone: .neutral,
-                        source: "Follows your persona text; the persona lifts Instruct from 66% to 85–88% first-word on eval-v2."),
-            EffectBadge(icon: "memorychip", text: "loads an instruct sibling", tone: .memory,
-                        source: "Runs the instruct-tuned sibling of the selected model (~6.8 GB it-6bit on the E4B tiers, ~3–5 GB on smaller tiers)."),
-        ]
-        if store.instructUnusable {
-            badges.insert(EffectBadge(icon: "exclamationmark.triangle", text: "broken on this model", tone: .caution,
-                                      source: "\(store.selectedModelName) answers the text instead of continuing it in Instruct style (~0% first-word measured) — use Base."), at: 0)
-        }
-        return badges
-    }
-
-    private var lengthBadges: [EffectBadge] {
-        // Length sweep (eval-real, 2026-07-13): p50 157 / 291 / 550 ms on the
-        // sweep model; first-word length-independent, word-F1 drops. Figures
-        // shown are the sweep's ×1.85/×3.5 ratios applied to the SELECTED
-        // model's measured base latency — quoting the sweep model's absolute
-        // milliseconds next to a rail that shows this model's contradicts it.
-        // The reach badge states what longer BUYS — without it the control
-        // reads as pure degradation on the measured axes.
-        let baseMs = ModelMetrics.metrics(for: store.modelID)?.p50Ms
-        func ms(_ length: CompletionLength) -> String {
-            guard let baseMs else { return "" }
-            let v = Int((Double(baseMs) * ConfigProjection.latencyFactor(length)).rounded())
-            return v >= 1000 ? String(format: "%.1f s", Double(v) / 1000) : "\(v) ms"
-        }
-        let sweepSource = "Measured length sweep (eval-real, 2026-07-13): 157 · 291 · 550 ms p50 on the sweep model — "
-            + (baseMs != nil
-                ? "the ×1.85/×3.5 ratios here are applied to \(store.selectedModelName)'s measured base latency."
-                : "no measured base latency for this model, so only the ratios are shown.")
-        let reach: EffectBadge
-        let speed: EffectBadge
-        switch store.length {
-        case .short, .word:
-            reach = EffectBadge(icon: "text.word.spacing", text: "runs 2–3 words ahead", tone: .neutral,
-                                source: "How far one suggestion runs. Short is the sweep's best net-value point for inline ghost text — same accuracy as longer settings at a fraction of the wait.")
-            speed = EffectBadge(icon: "bolt",
-                                text: baseMs != nil ? "fastest — p50 ~\(ms(.short))" : "fastest",
-                                tone: .speed, source: sweepSource)
-        case .medium:
-            reach = EffectBadge(icon: "text.word.spacing", text: "runs up to ~6 words ahead", tone: .neutral,
-                                source: "What longer buys: more words per suggestion (+1–2 pp completeness in the sweep). Per-word accuracy does not improve — you pay only in wait time.")
-            speed = EffectBadge(icon: "bolt",
-                                text: baseMs != nil ? "p50 ~\(ms(.medium)) (≈2× short)" : "≈2× slower than short",
-                                tone: .caution, source: sweepSource)
-        case .long:
-            reach = EffectBadge(icon: "text.word.spacing", text: "runs up to a sentence ahead", tone: .neutral,
-                                source: "What longer buys: more words per suggestion (+1–2 pp completeness in the sweep). Per-word accuracy does not improve, and weak tails are trimmed automatically.")
-            speed = EffectBadge(icon: "tortoise",
-                                text: baseMs != nil ? "p50 ~\(ms(.long)) (≈3.5× short)" : "≈3.5× slower than short",
-                                tone: .caution, source: sweepSource)
-        }
-        return [
-            reach,
-            speed,
-            EffectBadge(icon: "scope", text: "accuracy unchanged", tone: .quality,
-                        source: "First-word accuracy is length-independent in the sweep; longer buys ~1–2 pp completeness but loses word-F1 — speed is the real trade-off."),
-        ]
     }
 
 }
@@ -1809,12 +1660,6 @@ struct PersonalTab: View {
                     Spacer()
                     Button("Reset to System") { store.resetInstructions() }
                         .controlSize(.small)
-                }
-                if !store.isAppleIntelligence {
-                    BadgeRow(badges: [
-                        EffectBadge(icon: "scope", text: "66% → 85–88% first-word (Instruct)", tone: .quality,
-                                    source: "Measured on eval-v2: Instruct without a persona 66% first-word; with the auto-persona 85%; with a hand-tuned one 88%."),
-                    ])
                 }
             }
 
@@ -1863,10 +1708,6 @@ struct PersonalTab: View {
                         Text("Medium").tag(PersonalizationLevel.medium)
                         Text("Strong").tag(PersonalizationLevel.strong)
                     }
-                    BadgeRow(badges: [
-                        EffectBadge(icon: "flask", text: "directionally positive, needs more data", tone: .neutral,
-                                    source: "Boost = level × ln(1 + times you typed this word after this context, capped), applied to the first token — the n-gram fusion whose time-split replay went 3/0 in its favor (p=0.25, underpowered at n=54; re-measured as your journal grows). The old context-free favored-word bias measured null (p=1.0) and was removed. Collected only while on; nothing leaves your Mac."),
-                    ])
                     HStack {
                         Caption("Boosts the words you habitually type next — learned from your suggestion journal. Clear the journal to forget them.")
                         Spacer()
@@ -1928,12 +1769,6 @@ struct PersonalTab: View {
                     LabeledContent("Accepted phrases") {
                         Text("reused as prompt examples — automatic")
                     }
-                    BadgeRow(badges: [
-                        EffectBadge(icon: "checkmark.seal", text: "measured win on Instruct style", tone: .quality,
-                                    source: "Few-shot from your own accepted phrases: first-word 4% → 10% on the journal replay, all 7 discordant samples in its favor, exact p=0.016 (Instruct path)."),
-                        EffectBadge(icon: "info.circle", text: "now feeds Base style too — unmeasured", tone: .neutral,
-                                    source: "Base used to ignore examples (confirmed no-op A/B). Since 2026-07-16 they are prefixed to the Base prompt as a label-free block (the screen-context format) — the instruct win motivated the port; the Base-path effect itself is not measured yet."),
-                    ])
                     Caption("A measured win at no latency cost, so there's no switch to lose. Clear the journal above to forget the phrases.")
                 }  // end few-shot rows (hidden for Apple Intelligence)
             }
