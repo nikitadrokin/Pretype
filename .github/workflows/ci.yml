@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A macOS runner bills at 10× a Linux one, so a superseded push must not keep
+# building — only the newest commit on a ref matters.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Single source for the toolchain pin: the SwiftPM cache key has to move with
+# it, or a .build restored from the previous Xcode fails to import its own
+# modules — a poisoned cache that looks like a source error.
+env:
+  XCODE_VERSION: '26.3'
+
+# `swift build` catches compile regressions on every PR. It does NOT exercise
+# Scripts/make-app.sh — the xcodebuild/Metal path that produces the shipped
+# bundle — so that runs on pushes to main only: cheap enough per merge, and it
+# means the packaging path can't first break on a tag push, where the only
+# symptom is a broken draft release.
+jobs:
+  build:
+    name: swift build (macOS)
+    # macOS 15 ships Xcode 16.3+ (Swift 6.1) — required by mlx-swift-lm 3.31.3.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned so a runner-image toolchain bump can't break builds silently.
+      # Floor is the macOS 26 SDK: FoundationModelsEngine imports the
+      # FoundationModels framework, absent from Xcode 16.x. Bump deliberately.
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: ${{ env.XCODE_VERSION }}
+
+      # ponytail: swiftlint stays unpinned (brew) — a release that adds rules can
+      # redden an unrelated PR. Pin the formula if that ever bites twice.
+      - name: Lint
+        run: |
+          command -v swiftlint >/dev/null || brew install swiftlint
+          swiftlint --strict
+
+      - name: Cache SwiftPM
+        uses: actions/cache@v4
+        with:
+          path: |
+            .build
+            ~/Library/Caches/org.swift.swiftpm
+          key: spm-${{ runner.os }}-${{ env.XCODE_VERSION }}-${{ hashFiles('Package.resolved') }}
+          restore-keys: |
+            spm-${{ runner.os }}-${{ env.XCODE_VERSION }}-
+
+      # Metal shader compilation is a separate component on Xcode 26+; a no-op
+      # on older Xcodes. Tolerated if it isn't available on the runner.
+      - name: Install Metal toolchain
+        run: xcodebuild -downloadComponent MetalToolchain || true
+
+      - name: Build
+        run: swift build
+
+      # The unit tests cover only pure logic (output gates, hotkey matching,
+      # spell-check helpers, app policy) — no Metal/MLX inference — so they run
+      # headless on the runner even though the full engine can't.
+      - name: Test
+        run: swift test
+
+      # The release build is the first thing that ever runs make-app.sh, and a
+      # broken bundle there only shows up as a bad download. Same script, same
+      # runner, one merge earlier. PRs skip it: an xcodebuild Release of MLX is
+      # minutes, and a compile break already reddens `swift build` above.
+      - name: Package app bundle
+        if: github.event_name == 'push'
+        run: ./Scripts/make-app.sh

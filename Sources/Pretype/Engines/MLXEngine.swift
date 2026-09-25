@@ -1,0 +1,1263 @@
+import Foundation
+import MLX
+import MLXLLM
+import MLXLMCommon
+import MLXHuggingFace
+import HuggingFace
+import Tokenizers
+
+/// In-process inference on Apple Silicon via MLX. The model is downloaded
+/// from Hugging Face on first use and cached in ~/.cache/huggingface.
+///
+/// Latency strategy: the KV cache is kept between keystrokes. Each request
+/// trims it back to the common token prefix with the previous prompt and
+/// prefills only the few new tokens, so per-keystroke cost is dominated by
+/// decoding ~14 tokens instead of re-reading the whole context.
+///
+/// The model catalog and runtime support live in `ModelCatalog.swift`; the
+/// token-iteration core, KV-cache and logit processors in
+/// `MLXEngine+Generation.swift`; the shared output/correction gates in
+/// `CompletionGates`/`CorrectionGates`.
+final class MLXEngine: CompletionEngine {
+    // These three are process-wide knobs the dev/eval harness sets ONCE at
+    // startup, before any engine spins up, and the generation tasks then only
+    // read them. A `LockedValue` makes the shared mutable state explicit and
+    // thread-safe under the Swift 6 language mode.
+    /// Verbose generation logging for the --complete test harness.
+    static let debugLogging = LockedValue<Bool>(false)
+    /// Greedy (argmax) decoding — now the shipped default, not just an eval pin
+    /// (see `completionParameters`). `PRETYPE_EVAL_SAMPLING=1` clears it and
+    /// restores the pre-2026-07-20 sampled decoder (T=0.1), which is the A/B arm.
+    static let greedy = LockedValue<Bool>(true)
+    /// Instruct prompt format, A/B-swept on eval-v2 (PRETYPE_PROMPT_VARIANT
+    /// overrides). One of: userturn · prefill · localized · prefill-localized.
+    static let defaultPromptVariant = LockedValue<String>("userturn")
+    /// Pre-caret context-tail cap (chars). PRETYPE_MAX_CHARS sweeps context ROI
+    /// offline; default 1000, unchanged in production. Read once, process-wide.
+    static let maxContextChars = Int(ProcessInfo.processInfo.environment["PRETYPE_MAX_CHARS"] ?? "") ?? 1000
+
+    let name = "Local LLM (MLX)"
+
+    private let modelID: String
+    private let extraEOSTokens: Set<String>
+    /// Fixed at init: switching style reloads the engine (different model).
+    private let style: CompletionStyle
+    /// Live-tunable from the menu without a reload.
+    private let lengthBox: LockedValue<CompletionLength>
+    private let instructionsBox: LockedValue<String>
+    private let personalizationBox: LockedValue<PersonalizationLevel>
+    /// Self-consistency confidence gate (opt-in): when K>1 the engine samples the
+    /// completion K times and only returns one if its first word agrees on
+    /// ≥threshold of the draws — otherwise it abstains. Trades coverage for
+    /// precision (much higher first-word accuracy on real text; validated in
+    /// Eval/BASELINE.md). Off by default (it costs ~K× decode); enabled via
+    /// Settings.confidenceGate / PRETYPE_CONFIDENCE_GATE.
+    private let confidenceGateK: Int
+    private let confidenceGateThreshold: Double
+    /// Logprob confidence gate (base only): abstain when the shown suggestion's
+    /// first-word logprob < this. nil = off. Fixed at init like the K-sample gate;
+    /// enabled via Settings.logprobGate / PRETYPE_LOGPROB_GATE. 0× extra decode —
+    /// the value is already captured by the live decode loop (firstWordLogProbBox).
+    private let logprobGateThreshold: Double?
+    /// Confidence trim: cut the shown suggestion just before the first decode
+    /// token whose logprob < this (never inside the first word). nil = off.
+    /// Same live recorder as the logprob gate — 0× extra decode; unlike the
+    /// gates it trims instead of abstaining. PRETYPE_TRIM_LOGPROB pins it
+    /// (numeric = τ sweep, non-numeric "off" = force off, unset = Settings).
+    /// Read live (unlike the gates it's style/model-independent), so the
+    /// Settings toggle applies without an engine rebuild.
+    private var trimLogProbThreshold: Float? {
+        if let e = trimLogProbEnv { return Float(e) }
+        return Settings.confidenceTrim ? Float(Settings.confidenceTrimThreshold) : nil
+    }
+    private let trimLogProbEnv: String?
+    /// First-word beam rerank (dev/eval, PRETYPE_BEAM=k): decode k branches
+    /// off the top-k first tokens, show the branch with the best-summed
+    /// first-word logprob. 1 = off (plain greedy). PRETYPE_BEAM_NGRAM=β adds
+    /// β·ln(1+count) of personal-ngram evidence to each branch's first word.
+    private let beamK: Int
+    private let beamNgramWeight: Double
+    /// PRETYPE_BEAM_SCORE=mean|sum — branch statistic (see `beamGenerate`).
+    private let beamScoreByMean: Bool
+    /// Forces sampling (temperature) inside the gate's K draws even when the eval
+    /// harness pinned greedy. Set only around the gate loop.
+    private let gateForceSample = LockedValue(false)
+    private let stateBox = StateBox()
+    private var loadTask: Task<ModelContainer, Error>?
+    /// Instruct model for fix-selection; loaded lazily on first ⌥Tab.
+    private var correctionLoadTask: Task<ModelContainer, Error>?
+    /// "The fix model's weights are on this machine" — see `isCorrectionReady`.
+    /// Outlives an idle unload on purpose: unloading frees memory, not disk.
+    private let correctionFetched = LockedValue(false)
+
+    /// Serializes model lifecycle (load · idle-unload · reload) across the
+    /// generation tasks, the idle timer, and the memory-pressure source.
+    private let modelLock = NSLock()
+    /// True once the initial load was started (false when Metal is missing), so
+    /// reload/prewarm only ever rebuild a model we genuinely had.
+    private var didInitLoad = false
+    /// Requests currently holding the model; the idle/pressure unload waits for 0.
+    private var inFlightCount = 0
+    /// Last time the model was used — drives the idle-unload timer.
+    private var lastActivity = Date()
+    /// After a load failure, back off before retrying so a genuinely unavailable
+    /// model (offline, bad repo id) isn't re-attempted on every keystroke — each
+    /// retry otherwise re-hits the Hub and flips state preparing↔failed per press.
+    private static let loadRetryCooldown: TimeInterval = 30
+    /// When the last load attempt failed; nil once a load succeeds. Guarded by modelLock.
+    private var lastLoadFailure: Date?
+    private let maintenanceQueue = DispatchQueue(label: "app.pretype.mlx.maintenance")
+    private var idleTimer: DispatchSourceTimer?
+    private var memoryPressureSource: DispatchSourceMemoryPressure?
+
+    /// KV-cache + token snapshots reused between keystrokes (LRU; type lives in
+    /// `MLXEngine+Generation.swift`).
+    private let promptCache = PromptCache()
+
+    var state: EngineState { stateBox.get() }
+
+    /// `.preparing` with a live task = loading or downloading; `.preparing`
+    /// with no task = the idle-unloaded resting state, where nothing runs and
+    /// nothing writes — the protocol's default (any `.preparing` is busy)
+    /// would report the app's most common state as busy forever.
+    var isLoading: Bool {
+        guard case .preparing = stateBox.get() else { return false }
+        modelLock.lock()
+        defer { modelLock.unlock() }
+        return loadTask != nil || correctionLoadTask != nil
+    }
+
+    /// The RESOLVED primary model (instruct sibling in instruct style, local
+    /// fine-tune directory name) — what the journal must stamp. `modelID` is
+    /// already post-resolution here (see `init`), unlike `Settings.mlxModelID`.
+    var loadedModelID: String? {
+        modelID.split(separator: "/").last.map(String.init) ?? modelID
+    }
+
+    /// First-word confidence of the last completed ungated generation (see the
+    /// protocol doc). Reset to nil when a generation starts, set only when it
+    /// survives the output gate — so a read at suggestion-resolve time refers
+    /// to the suggestion that was actually shown, not an abstained draw.
+    private let firstWordLogProbBox = LockedValue<Double?>(nil)
+    var lastFirstWordLogProb: Double? { firstWordLogProbBox.get() }
+
+    /// Effective gate/trim config — the eval header prints this so every run
+    /// records what silently came from Settings rather than env.
+    var gateSummary: String {
+        let lp = logprobGateThreshold.map { String(format: "%.2f", $0) } ?? "off"
+        let tr = trimLogProbThreshold.map { String(format: "%.2f", $0) } ?? "off"
+        let sc = confidenceGateK > 1
+            ? "K=\(confidenceGateK)@\(String(format: "%.2f", confidenceGateThreshold))" : "off"
+        let beam = beamK > 1
+            ? "\(beamK)·\(beamScoreByMean ? "mean" : "sum")\(beamNgramWeight > 0 ? "+ngram·\(beamNgramWeight)" : "")"
+            : "off"
+        return "logprobGate=\(lp) · trim=\(tr) · selfConsist=\(sc) · beam=\(beam) · heal=\(Self.healConstrain ? "constrain" : "match")"
+    }
+
+    /// Mid-word healing mode: constrained decoding (force the fragment path,
+    /// recover the coverage match-only healing abstains away) vs plain fragment
+    /// match. `PRETYPE_HEAL_CONSTRAIN=off` pins match-only — the eval A/Bs the
+    /// two on identical rows. Read once, like the prompt variant.
+    static let healConstrain = ProcessInfo.processInfo.environment["PRETYPE_HEAL_CONSTRAIN"] != "off"
+
+    var statusLine: String? {
+        let model = modelID.split(separator: "/").last.map(String.init) ?? modelID
+        switch stateBox.get() {
+        case .preparing(let detail): return "\(model): \(detail)"
+        case .ready: return "\(model): ready"
+        case .failed(let detail): return "\(model): failed — \(detail)"
+        }
+    }
+
+    init(modelID: String, config: CompletionConfig = .resolved()) {
+        let baseOption = ModelCatalog.option(for: modelID)
+        self.style = config.style
+        self.extraEOSTokens = baseOption?.extraEOSTokens ?? []
+        self.lengthBox = LockedValue(config.length)
+        self.instructionsBox = LockedValue(config.instructions)
+        self.personalizationBox = LockedValue(config.personalization)
+        let env = ProcessInfo.processInfo.environment
+        // A SET env var pins the knob regardless of Settings — non-numeric
+        // ("off") disables. Falling back to Settings on a set-but-non-numeric
+        // value would let eval runs silently inherit the app's live config.
+        if let e = env["PRETYPE_CONFIDENCE_GATE"] {
+            self.confidenceGateK = Int(e) ?? 0
+        } else {
+            self.confidenceGateK = Settings.confidenceGate ? Settings.confidenceGateSamples : 0
+        }
+        self.confidenceGateThreshold = Double(env["PRETYPE_CONFIDENCE_THRESHOLD"] ?? "")
+            ?? Settings.confidenceGateThreshold
+        if let e = env["PRETYPE_LOGPROB_GATE"] {
+            self.logprobGateThreshold = Double(e)
+        } else if Settings.logprobGate {
+            // Recommended settings follow the model: τ is calibrated per model
+            // (Q4 edges −0.75…−1.12 — see Recommendation.logprobGateTau); a
+            // hand-tuned threshold (useRecommendedSettings off) applies as-is.
+            self.logprobGateThreshold = Settings.useRecommendedSettings
+                ? ModelCatalog.recommended(for: modelID).logprobGateTau ?? Settings.logprobGateThreshold
+                : Settings.logprobGateThreshold
+        } else {
+            self.logprobGateThreshold = nil
+        }
+        self.trimLogProbEnv = env["PRETYPE_TRIM_LOGPROB"]
+        self.beamK = max(1, Int(env["PRETYPE_BEAM"] ?? "") ?? 1)
+        self.beamNgramWeight = Double(env["PRETYPE_BEAM_NGRAM"] ?? "") ?? 0
+        self.beamScoreByMean = env["PRETYPE_BEAM_SCORE"] != "sum"
+
+        // Instruct style runs completion *and* correction on the instruct
+        // sibling, so load that as the primary model (no second model in RAM).
+        // PRETYPE_INSTRUCT_MODEL overrides the sibling so the harness can A/B
+        // instruct at a fairer quant (the catalog only maps to `…-it-4bit`).
+        let primaryID: String
+        switch config.style {
+        case .base:
+            primaryID = modelID
+        case .instruct:
+            primaryID = ProcessInfo.processInfo.environment["PRETYPE_INSTRUCT_MODEL"]
+                ?? baseOption?.instructModelID ?? baseOption?.correctionModelID ?? modelID
+        }
+        self.modelID = primaryID
+
+        guard MLXSupport.isAvailable else {
+            stateBox.set(.failed("Metal shaders missing — build with Scripts/make-app.sh or run Scripts/dev.sh"))
+            return
+        }
+        // Bounded but generous buffer cache: enough for fast decode reuse
+        // without hoarding memory between keystrokes.
+        Memory.cacheLimit = 512 * 1024 * 1024
+        loadTask = makeLoadTask()
+        didInitLoad = true
+        startIdleMaintenance()
+    }
+
+    // MARK: - Model lifecycle (load · idle-unload · reload)
+
+    private func makeLoadTask() -> Task<ModelContainer, Error> {
+        let stateBox = self.stateBox
+        let id = self.modelID
+        let eos = self.extraEOSTokens
+        stateBox.set(.preparing("loading…"))
+        return Task { [weak self] in
+            do {
+                // A fine-tuned model is a local directory (no download); a
+                // catalog id resolves through the Hub.
+                let configuration: ModelConfiguration
+                var isDir: ObjCBool = false
+                if FileManager.default.fileExists(atPath: id, isDirectory: &isDir), isDir.boolValue {
+                    configuration = ModelConfiguration(directory: URL(fileURLWithPath: id), extraEOSTokens: eos)
+                } else {
+                    configuration = ModelConfiguration(id: id, extraEOSTokens: eos)
+                }
+                let container = try await #huggingFaceLoadModelContainer(
+                    configuration: configuration,
+                    progressHandler: { progress in
+                        stateBox.set(.preparing(Self.downloadStatus(progress)))
+                    }
+                )
+                // The first generation pays for Metal kernel compilation; do it
+                // now so the first real keystroke doesn't. A warm-up failure
+                // shouldn't block readiness (the next real request surfaces it),
+                // but it must not be swallowed silently.
+                stateBox.set(.preparing("warming up…"))
+                do {
+                    _ = try await Self.generate(
+                        in: container, prompt: "Hello",
+                        parameters: GenerateParameters(maxTokens: 2, temperature: 0.0),
+                        extraEOSTokens: eos, promptCache: nil
+                    )
+                } catch {
+                    DebugLog.shared.log("ERROR", "warm-up generation failed: \(error.localizedDescription)")
+                }
+                stateBox.set(.ready)
+                self?.markLoadSucceeded()
+                return container
+            } catch {
+                stateBox.set(.failed(error.localizedDescription))
+                self?.clearLoadTaskOnFailure()
+                throw error
+            }
+        }
+    }
+
+    private func clearLoadTaskOnFailure() {
+        modelLock.lock()
+        defer { modelLock.unlock() }
+        loadTask = nil
+        lastLoadFailure = Date()
+    }
+
+    private func markLoadSucceeded() {
+        modelLock.lock()
+        defer { modelLock.unlock() }
+        lastLoadFailure = nil
+    }
+
+    /// Marks a request in-flight and returns the model-load task, reloading it if
+    /// it was idle-unloaded. Returns nil when the engine never initialized (e.g.
+    /// Metal missing) — callers then abstain, as before. Pair with `endRequest()`.
+    private func beginRequest() -> Task<ModelContainer, Error>? {
+        modelLock.lock(); defer { modelLock.unlock() }
+        guard didInitLoad else { return nil }
+        if loadTask == nil {
+            // Back off after a failure: don't recreate the load task (and re-hit
+            // the Hub) until the cooldown passes, so an unavailable model isn't
+            // retried on every keystroke. Abstain meanwhile without leaking the
+            // in-flight count.
+            if let failedAt = lastLoadFailure, Date().timeIntervalSince(failedAt) < Self.loadRetryCooldown {
+                return nil
+            }
+            DebugLog.shared.log("MLX", "loading model (idle-unloaded or retry after failure)")
+            loadTask = makeLoadTask()
+        }
+        inFlightCount += 1
+        lastActivity = Date()
+        return loadTask
+    }
+
+    private func endRequest() {
+        modelLock.lock()
+        inFlightCount = max(0, inFlightCount - 1)
+        lastActivity = Date()
+        modelLock.unlock()
+    }
+
+    /// Starts a background reload if the model was idle-unloaded, so a focus
+    /// change or first keystroke hides the reload latency. Cheap no-op (lock +
+    /// nil check) when the model is already loaded or loading.
+    func prewarmIfNeeded() {
+        modelLock.lock(); defer { modelLock.unlock() }
+        guard didInitLoad, loadTask == nil else { return }
+        // Same failure backoff as beginRequest — a focus change shouldn't retry a
+        // model that just failed to load.
+        if let failedAt = lastLoadFailure, Date().timeIntervalSince(failedAt) < Self.loadRetryCooldown { return }
+        DebugLog.shared.log("MLX", "prewarming model after idle")
+        lastActivity = Date()
+        loadTask = makeLoadTask()
+    }
+
+    /// Free the resident model right now (menu action). Reloads on next use.
+    func releaseModelNow() {
+        unload(reason: "manual", force: true)
+    }
+
+    /// Releases the resident model (weights + buffer cache) so an idle menu-bar
+    /// app doesn't hold several GB. The next request or prewarm reloads it from
+    /// disk. No-op while a request is in flight, mid-load, or just used.
+    private func unload(reason: String, force: Bool = false) {
+        modelLock.lock()
+        let idleEnough = force || Date().timeIntervalSince(lastActivity) > 3
+        guard inFlightCount == 0, idleEnough,
+              loadTask != nil || correctionLoadTask != nil,
+              case .ready = stateBox.get() else {
+            modelLock.unlock(); return
+        }
+        let before = Memory.snapshot().activeMemory
+        loadTask?.cancel(); loadTask = nil
+        correctionLoadTask?.cancel(); correctionLoadTask = nil
+        modelLock.unlock()
+
+        Memory.clearCache()
+        promptCache.clear()
+        let freed = Int64(max(0, before - Memory.snapshot().activeMemory))
+        let amount = ByteCountFormatter.string(fromByteCount: freed, countStyle: .memory)
+        stateBox.set(.preparing("idle — model unloaded"))
+        DebugLog.shared.log("MLX", "unloaded model (\(reason)) — freed ~\(amount)")
+    }
+
+    /// Idle-unload timer + memory-pressure source: both free the model when it
+    /// is unused or the system needs RAM; the next use reloads it.
+    private func startIdleMaintenance() {
+        let pressure = DispatchSource.makeMemoryPressureSource(
+            eventMask: [.warning, .critical], queue: maintenanceQueue
+        )
+        pressure.setEventHandler { [weak self] in
+            self?.unload(reason: "memory pressure")
+        }
+        pressure.resume()
+        memoryPressureSource = pressure
+
+        // The idle timer always runs; the timeout is read live so the Settings
+        // control takes effect without an engine reload (0 minutes = disabled).
+        let timer = DispatchSource.makeTimerSource(queue: maintenanceQueue)
+        timer.schedule(deadline: .now() + 60, repeating: 60, leeway: .seconds(10))
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            let minutes = Settings.idleUnloadMinutes
+            guard minutes > 0 else { return }
+            self.modelLock.lock()
+            let idle = Date().timeIntervalSince(self.lastActivity)
+            let busy = self.inFlightCount > 0
+            self.modelLock.unlock()
+            if !busy, idle >= TimeInterval(minutes) * 60 {
+                self.unload(reason: "idle \(Int(idle))s")
+            }
+        }
+        timer.resume()
+        idleTimer = timer
+    }
+
+    deinit {
+        idleTimer?.cancel()
+        memoryPressureSource?.cancel()
+    }
+
+    // MARK: - Completion
+
+    func complete(_ request: CompletionRequest) async throws -> String? {
+        // The gate's agreement→correctness signal only holds for base continuation
+        // (instruct confidently paraphrases), so it's a base-style-only feature.
+        if confidenceGateK > 1, style == .base { return try await completeGated(request) }
+        return try await completeOnce(request)
+    }
+
+    /// One ungated decode of the active style.
+    private func completeOnce(_ request: CompletionRequest) async throws -> String? {
+        switch style {
+        case .base: return try await completeBase(request)
+        case .instruct: return try await completeInstruct(request)
+        }
+    }
+
+    /// Self-consistency confidence gate: draw the completion `confidenceGateK`
+    /// times (sampling), keep the suggestion only if its first word is the modal
+    /// one on ≥`confidenceGateThreshold` of the draws — otherwise abstain. The
+    /// returned suggestion is the modal-first-word draw seen most, so the user
+    /// gets a high-agreement continuation. Higher precision, lower coverage.
+    private func completeGated(_ request: CompletionRequest) async throws -> String? {
+        gateForceSample.set(true)
+        defer { gateForceSample.set(false) }
+        // Gated draws don't record first-word confidence (they sample at T≈0.6;
+        // agreement is the gate's own signal) — clear the box so a resolve-time
+        // read can't surface a value from before the gate was enabled.
+        firstWordLogProbBox.set(nil)
+        var byFirstWord: [String: (count: Int, sample: String)] = [:]
+        var draws = 0
+        for _ in 0..<confidenceGateK {
+            try Task.checkCancellation()
+            guard let sug = try await completeOnce(request),
+                  let fw = Self.gateFirstWord(sug) else { continue }
+            draws += 1
+            let prev = byFirstWord[fw]
+            byFirstWord[fw] = (count: (prev?.count ?? 0) + 1, sample: prev?.sample ?? sug)
+        }
+        guard draws > 0, let best = byFirstWord.max(by: { $0.value.count < $1.value.count }) else { return nil }
+        // Agreement is measured over the K attempts (abstentions count against it,
+        // so a model that only answers once isn't spuriously "consistent").
+        guard Double(best.value.count) / Double(confidenceGateK) >= confidenceGateThreshold else {
+            DebugLog.shared.log("GATE", "low self-consistency (\(best.value.count)/\(confidenceGateK)) — abstaining")
+            return nil
+        }
+        return best.value.sample
+    }
+
+    /// First word of a suggestion, folded to match across draws (lowercased,
+    /// ё→е, split on non-alphanumerics).
+    private static func gateFirstWord(_ s: String) -> String? {
+        s.lowercased().replacingOccurrences(of: "ё", with: "е")
+            .split { !$0.isLetter && !$0.isNumber }.first.map(String.init)
+    }
+
+    /// Mean per-token log P(continuation | context) via one forward pass (see
+    /// `logProbScore`). Loads/reuses the resident model; nil if it can't load or
+    /// the strings are empty. Dev/eval only — NOT on the live keystroke path.
+    /// Per-token is the gate-calibration scale (τ thresholds live on it); for
+    /// cross-model or cross-language ranking use `refLogProb`'s per-char value.
+    func logProbability(of continuation: String, given context: String) async -> Double? {
+        guard let task = beginRequest() else { return nil }
+        defer { endRequest() }
+        guard let container = try? await task.value else { return nil }
+        guard let s = await Self.logProbScore(in: container, continuation: continuation, context: context) else { return nil }
+        return s.total / Double(s.tokens)
+    }
+
+    /// Reference-ranking variant: per-token AND per-char log P. Per-char is the
+    /// normalization comparable across tokenizers (model families) and languages —
+    /// per-token is confounded by fertility (RU ~2× denser tokens than EN).
+    func refLogProb(of continuation: String, given context: String) async -> (perToken: Double, perChar: Double)? {
+        guard let task = beginRequest() else { return nil }
+        defer { endRequest() }
+        guard let container = try? await task.value else { return nil }
+        guard let s = await Self.logProbScore(in: container, continuation: continuation, context: context) else { return nil }
+        return (s.total / Double(s.tokens), s.total / Double(continuation.count))
+    }
+
+    /// Rank of the true continuation's first token (0 = top-1) via one forward
+    /// pass (see `firstTokenRank`). Dev/eval only — for top-k recall.
+    func firstTokenRank(of continuation: String, given context: String) async -> Int? {
+        guard let task = beginRequest() else { return nil }
+        defer { endRequest() }
+        guard let container = try? await task.value else { return nil }
+        return await Self.firstTokenRank(in: container, continuation: continuation, context: context)
+    }
+
+    func completions(for request: CompletionRequest) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    // The self-consistency gate needs K full draws to measure
+                    // first-word agreement, so it can't stream partials. When it's
+                    // active (Base style only — instruct confidently paraphrases),
+                    // run the gated decode and yield its single result. This is the
+                    // live path, so the Settings/menu "High-precision mode" toggle
+                    // now actually changes what the user sees.
+                    if confidenceGateK > 1, style == .base {
+                        if let gated = try await completeGated(request) { continuation.yield(gated) }
+                        continuation.finish()
+                        return
+                    }
+                    // Same reasoning for the logprob gate: its accept/abstain
+                    // verdict (first-word mean logprob) only exists after the
+                    // full decode, so streaming partials would show a suggestion
+                    // the gate then retracts — a visible flash-and-vanish on
+                    // every abstain. No partials; yield the single gated result.
+                    if logprobGateThreshold != nil, style == .base {
+                        if let result = try await completeBase(request) { continuation.yield(result) }
+                        continuation.finish()
+                        return
+                    }
+                    let lastYielded = LockedValue<String?>(nil)
+                    let onPartial: @Sendable (String) -> Void = {
+                        lastYielded.set($0)
+                        continuation.yield($0)
+                    }
+                    let final: String?
+                    switch style {
+                    case .base: final = try await completeBase(request, onPartial: onPartial)
+                    case .instruct: final = try await completeInstruct(request, onPartial: onPartial)
+                    }
+                    // The confidence trim shortens the final text AFTER the last
+                    // partial went out — yield the reconciled result so the UI
+                    // replaces the streamed tail with the trimmed suggestion.
+                    if let final, final != lastYielded.get() {
+                        continuation.yield(final)
+                    } else if final == nil, lastYielded.get() != nil {
+                        // A post-stream abstain (logprob gate; a final-only gate
+                        // rejection like a language flip that needs ≥12 chars)
+                        // must RETRACT the partials already on screen. "" is the
+                        // retract signal — a real suggestion is never empty (the
+                        // gates reject empty).
+                        continuation.yield("")
+                    }
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// Shared prompt preparation for both completion paths. Trims the trailing
+    /// spaces the user typed (a dangling space derails SentencePiece models into
+    /// a stray newline), enforces a per-path context floor, and records the
+    /// word-boundary state the output gate needs. Returns nil — abstain — below
+    /// the floor or when nothing is left to encode.
+    private struct PreparedPrompt {
+        /// Context tail (user text + screen block) with trailing spaces removed —
+        /// what the context floor, the output gate and the n-gram lookups see.
+        /// Never contains the personal preamble: retrieved examples must not
+        /// satisfy the floor, flip the language gate, or poison the n-gram
+        /// context with words the user never typed here.
+        let text: String
+        /// What actually gets encoded: the personal-examples preamble (base
+        /// path, when present), then `text`.
+        let generationText: String
+        /// How many trailing spaces the user typed (the gate restores the separator).
+        let trailingSpaces: Int
+        /// The caret sits right after a run of letters with no separator.
+        let endsMidWord: Bool
+        /// …and that run is a finished word — so a leading-space suggestion is the
+        /// separator the user hasn't typed yet, not a stranded fragment.
+        let endsCompleteWord: Bool
+        let textAfterCaret: String
+        let singleWord: Bool
+
+        /// The output gate for this prompt: run a raw decode snapshot (partial or
+        /// final) through the shared `CompletionGates`. `cleanInstruct` first
+        /// strips wrapping quotes and restores the separator instruct models
+        /// answer without — base continuations bring their own separator.
+        func gate(cleanInstruct: Bool) -> @Sendable (String) -> String? {
+            let text = self.text
+            let trailing = trailingSpaces
+            let endsMidWord = self.endsMidWord
+            let endsCompleteWord = self.endsCompleteWord
+            let after = textAfterCaret
+            let singleWord = self.singleWord
+            return { output in
+                var raw = output
+                if cleanInstruct {
+                    raw = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                    for quote in ["\"", "“", "”"] {
+                        if raw.hasPrefix(quote) { raw.removeFirst() }
+                        if raw.hasSuffix(quote) { raw.removeLast() }
+                    }
+                    // Instruct models answer flush (no leading space). Restore the
+                    // separator the shared gate expects when the user already typed
+                    // it (trailing > 0) OR the caret sits right after a finished
+                    // word (the space they haven't typed yet), so the new word
+                    // doesn't glue onto the previous one.
+                    if trailing > 0 || endsCompleteWord, !raw.hasPrefix(" ") { raw = " " + raw }
+                }
+                return CompletionGates.postProcess(
+                    raw, prompt: text, trailingSpaces: trailing,
+                    endsMidWord: endsMidWord, endsCompleteWord: endsCompleteWord,
+                    textAfterCaret: after, singleWord: singleWord
+                )
+            }
+        }
+    }
+
+    /// Builds a `PreparedPrompt`, or nil to abstain. `midWordFloor` applies when
+    /// the caret is mid-word (a partial word is a strong constraint, so a lower
+    /// floor is safe and surfaces word completions earlier); `boundaryFloor`
+    /// applies at a word boundary. Screen context counts toward the threshold.
+    private func prepare(_ request: CompletionRequest,
+                         midWordFloor: Int, boundaryFloor: Int,
+                         personalPreamble: Bool = false) -> PreparedPrompt? {
+        var text = request.completionPrompt(maxChars: Self.maxContextChars)
+        let floor = text.last?.isLetter == true ? midWordFloor : boundaryFloor
+        guard text.count >= floor else {
+            DebugLog.shared.log("GATE", "below context floor (\(text.count) chars < \(floor)) — not querying the model")
+            return nil
+        }
+        var trailingSpaces = 0
+        while text.hasSuffix(" ") {
+            text.removeLast()
+            trailingSpaces += 1
+        }
+        guard !text.isEmpty else { return nil }
+
+        let after = request.textAfterCaret
+        let endsMidWord = trailingSpaces == 0 && text.last?.isLetter == true
+        let endsCompleteWord = endsMidWord
+            && (request.endsOnCompleteWord ?? SpellChecker.endsOnCompleteWord(before: text, after: after))
+        let preamble = personalPreamble ? request.personalPreambleBlock : nil
+        return PreparedPrompt(
+            text: text,
+            generationText: preamble.map { "\($0)\n\n\(text)" } ?? text,
+            trailingSpaces: trailingSpaces,
+            endsMidWord: endsMidWord, endsCompleteWord: endsCompleteWord,
+            textAfterCaret: after, singleWord: lengthBox.get().isSingleWord
+        )
+    }
+
+    /// Token healing for the mid-word caret state. A prompt that ends inside a
+    /// word usually ends inside a BPE token too, and the model then continues
+    /// as if a fresh word were starting — "goi" + "ing" → "goiing" (measured:
+    /// 5–9% first-word on eval-real-mid vs ~30% at word boundaries, 2026-07-17).
+    /// Back the prompt up to the word boundary so the model regenerates the
+    /// whole word, require the decode to reproduce the fragment the user
+    /// already typed, and emit only the remainder; a decode that contradicts
+    /// the fragment abstains — precision over coverage mid-word. Side effect:
+    /// the healed prompt is stable while a word is being typed, so the KV
+    /// cache holds across those keystrokes. Returns nil at a word boundary,
+    /// when nothing precedes the fragment, or when the fragment isn't
+    /// healable (CJK letter-runs have no word boundary to back up to; the
+    /// length cap rejects pasted letter-runs).
+    static func tokenHealing(text: String) -> (dropCount: Int, expected: String)? {
+        let fragment = String(text.reversed().prefix(while: \.isLetter).reversed())
+        guard !fragment.isEmpty, fragment.count <= 24,
+              !fragment.unicodeScalars.contains(where: isHealBlockedScript)
+        else { return nil }
+        var head = text.dropLast(fragment.count)
+        var separated = false
+        while head.hasSuffix(" ") {
+            head.removeLast()
+            separated = true
+        }
+        guard !head.isEmpty else { return nil }
+        return (dropCount: text.count - head.count,
+                expected: (separated ? " " : "") + fragment)
+    }
+
+    /// Han / kana / Hangul — scripts where a trailing letter-run is not "a word
+    /// being typed", so there is no boundary to heal from.
+    private static func isHealBlockedScript(_ s: Unicode.Scalar) -> Bool {
+        switch s.value {
+        case 0x2E80...0x9FFF, 0xAC00...0xD7AF, 0xF900...0xFAFF, 0xFF65...0xFF9F:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Raw text continuation against a base model: encode the tail, continue it.
+    /// A base model given only 3-4 tokens lands in random-language territory
+    /// (verified: "а теперь" → Turkish gibberish), so it floors higher than the
+    /// instruct path — except mid-word, where the partial word constrains it.
+    private func completeBase(_ request: CompletionRequest,
+                              onPartial: (@Sendable (String) -> Void)? = nil) async throws -> String? {
+        guard let task = beginRequest() else { return nil }
+        defer { endRequest() }
+        let container = try await task.value
+        try Task.checkCancellation()
+
+        // The retrieved accepted phrases ride the base prompt as a label-free
+        // preamble (the RAG signal, p=0.016 on instruct, ported to the path
+        // that actually wins — see Eval/BASELINE.md "the prize").
+        guard let prepared = prepare(request, midWordFloor: 10, boundaryFloor: 16,
+                                     personalPreamble: true) else { return nil }
+
+        // First-word confidence capture: reset up front so a stale value from a
+        // previous generation can never be journaled against this one; publish
+        // below only when the result survives the output gate, so a resolve-time
+        // read refers to the suggestion that was shown. Skipped inside the
+        // K-sample gate's draws — those sample at T≈0.6, so their logprobs are
+        // not comparable to the live path's, and the gate's own signal is
+        // agreement, not logprob.
+        let recording = !gateForceSample.get()
+        if recording { firstWordLogProbBox.set(nil) }
+        let logProbSink = recording ? LockedValue<Double?>(nil) : nil
+
+        let parameters = completionParameters(for: request)
+        let gate = prepared.gate(cleanInstruct: false)
+        // Mid-word: decode from the word boundary and strip the re-generated
+        // fragment (see tokenHealing). Beam keeps the raw prompt — its branches
+        // force first tokens, which healing's fragment match would fight.
+        let heal = beamK == 1 && prepared.endsMidWord
+            ? Self.tokenHealing(text: prepared.text) : nil
+        let healedGate: @Sendable (String) -> String?
+        if let heal {
+            let expected = heal.expected
+            healedGate = { out in
+                out.hasPrefix(expected) ? gate(String(out.dropFirst(expected.count))) : nil
+            }
+        } else {
+            healedGate = gate
+        }
+        let output: String
+        if beamK > 1 {
+            // Beam can't stream — the winner only exists after the last branch
+            // (partials from a losing branch would visibly flash-and-switch).
+            // The n-gram context is the USER text (prepared.text), never the
+            // preamble-carrying generation prompt.
+            let ngramContext = prepared.text
+            let weight = beamNgramWeight
+            var boost: (@Sendable (String) -> Double)?
+            if weight > 0 {
+                boost = { word in
+                    weight * PersonalNgram.fusionBoost(
+                        count: PersonalNgram.shared.count(of: word, after: ngramContext))
+                }
+            }
+            // No first-token bias here: branches force their first token, so
+            // the boost would land on the wrong step — beam fusion is the
+            // explicit ngramBoost above.
+            output = try await Self.beamGenerate(
+                in: container, prompt: prepared.generationText, k: beamK, parameters: parameters,
+                extraEOSTokens: extraEOSTokens, promptCache: promptCache,
+                logProbSink: logProbSink,
+                trimLogProb: recording ? trimLogProbThreshold : nil,
+                scoreByMean: beamScoreByMean,
+                ngramBoost: boost
+            )
+        } else {
+            output = try await Self.generate(
+                in: container,
+                prompt: heal.map { String(prepared.generationText.dropLast($0.dropCount)) }
+                    ?? prepared.generationText,
+                parameters: parameters,
+                extraEOSTokens: extraEOSTokens, promptCache: promptCache,
+                // Under healing the first decoded word is the CURRENT word being
+                // re-generated, not the next one — the next-word bias would
+                // fight the fragment match.
+                bias: heal == nil ? ngramBias(for: prepared) : nil,
+                logProbSink: logProbSink,
+                // The gate's K draws sample at T≈0.6 — their logprobs aren't
+                // comparable to the live path's, so no trim there either.
+                trimLogProb: recording ? trimLogProbThreshold : nil,
+                healExpected: Self.healConstrain ? heal?.expected : nil,
+                onPartial: Self.makeStreamHandler(onPartial, gate: healedGate)
+            )
+        }
+        try Task.checkCancellation()
+        if let heal, !output.hasPrefix(heal.expected) {
+            DebugLog.shared.log("GATE", "token-healing: decode \(output.prefix(24).debugDescription) contradicts typed fragment \(heal.expected.debugDescription) — abstaining")
+        }
+        let result = healedGate(output)
+        let lp = recording ? logProbSink?.get() : nil
+        // Logprob confidence gate: abstain on a low-confidence first word. 0× extra
+        // decode (lp is already captured above). Base only by construction —
+        // completeBase is never the instruct path, where the calibration doesn't hold.
+        // Healed suggestions bypass the gate: τ is calibrated on word-boundary
+        // next-word logprobs, but under healing lp is the fragment path of the
+        // CURRENT word (forced tokens under constrained decode) — a different
+        // scale that the word-boundary τ mostly rejects, while fragment-match
+        // already holds healed precision at ~77% (mid3, ANALYTICS §6в′).
+        if let thr = logprobGateThreshold, result != nil, heal == nil, let lp, lp < thr {
+            DebugLog.shared.log("GATE", "logprob-gate: first-word \(String(format: "%.2f", lp)) < \(thr) — abstaining")
+            firstWordLogProbBox.set(nil)
+            return nil
+        }
+        if recording, result != nil { firstWordLogProbBox.set(lp) }
+        return result
+    }
+
+    /// Persona-aware continuation through the instruct model's chat template:
+    /// a "continue, ~N words, match voice" directive + optional author profile,
+    /// then the text. The KV cache still applies — the directive/persona are a
+    /// constant prefix, so only the new characters re-prefill per keystroke.
+    private func completeInstruct(_ request: CompletionRequest,
+                                  onPartial: (@Sendable (String) -> Void)? = nil) async throws -> String? {
+        guard let task = beginRequest() else { return nil }
+        defer { endRequest() }
+        let container = try await task.value
+        try Task.checkCancellation()
+
+        // Lower floor than the base path: the instruct model is grounded by the
+        // directive + persona, so it stays coherent on short context (e.g. the
+        // first few words of a chat message) instead of going off-language.
+        guard let prepared = prepare(request, midWordFloor: 6, boundaryFloor: 10) else { return nil }
+        let promptText = prepared.text
+
+        // Prompt format is A/B-tunable via PRETYPE_PROMPT_VARIANT (swept on
+        // eval-v2). Gemma has no system role, so the directive rides in the user
+        // turn. "prefill" instead opens the assistant turn with the text so the
+        // model literally continues it; "localized" writes the directive in the
+        // text's language.
+        let length = lengthBox.get()
+        let persona = request.persona(global: instructionsBox.get())
+        let envVariant = ProcessInfo.processInfo.environment["PRETYPE_PROMPT_VARIANT"]
+        let variant = envVariant ?? Self.defaultPromptVariant.get()
+        let localized = variant.contains("localized") && Self.isCyrillicHeavy(promptText)
+        let prefill = variant.hasPrefix("prefill")
+        // Fill-in-the-Middle: emulate suffix-conditioning via the prompt (Gemma 4
+        // has no FIM tokens). An explicit PRETYPE_PROMPT_VARIANT fully controls it
+        // (A/B); otherwise auto-enable only when the user's toggle is on AND the
+        // model is E4B-class — it's unreliable on the smaller E2B (measured), where
+        // we log the skip. Needs a non-trivial suffix, so it's a no-op at end-of-line.
+        let suffixForPrompt = String(request.textAfterCaret.prefix(200))
+        let hasSuffix = !suffixForPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let infill: Bool = {
+            guard hasSuffix else { return false }
+            if let envVariant { return envVariant.contains("infill") }
+            guard Settings.fimEnabled else { return false }
+            if Self.isFIMCapable(modelID) { return true }
+            DebugLog.shared.log("GATE", "fill-in-the-middle off — \(modelID) is not E4B-class (unreliable here)")
+            return false
+        }()
+
+        var directive: String
+        if infill {
+            directive = """
+            You are filling a gap in the user's text where the cursor sits between BEFORE \
+            and AFTER. Output ONLY the specific missing words that belong in the gap — the \
+            content itself (an object, name, time, place or action), NEVER a linking word \
+            such as "because", "and", "so", "before" or "due to". BEFORE + your words + \
+            AFTER must read as one natural sentence in the same language, and your words \
+            must not repeat anything already in AFTER. No quotes, no explanation.
+
+            BEFORE: \(promptText)
+            AFTER: \(suffixForPrompt)
+            """
+            if !persona.isEmpty {
+                directive += "\n\nAuthor profile (for voice only, never quote it):\n\(persona)"
+            }
+        } else if localized {
+            let hint: String
+            switch length.directiveLength {
+            case .word: hint = "только одно следующее слово"  // unreachable: word → short
+            case .short: hint = "не больше 2–3 слов"
+            case .medium: hint = "короткой фразой, до ~6 слов"
+            case .long: hint = "не больше одного предложения"
+            }
+            directive = """
+            Продолжи текст на том же языке, в том же тоне и регистре. Ответь ТОЛЬКО \
+            следующими словами (\(hint)) — не повторяй уже написанное, без кавычек и \
+            пояснений.
+            """
+            if !persona.isEmpty {
+                directive += "\n\nО пользователе (для стиля, не цитировать):\n\(persona)"
+            }
+        } else {
+            directive = """
+            Continue the text in the same language, tone and register. Reply with \
+            ONLY the words that come next (\(length.directiveLength.wordsHint)) — do \
+            not repeat the existing text, no quotes, no explanation.
+            """
+            if !persona.isEmpty {
+                directive += "\n\nAuthor profile (for voice only, never quote it):\n\(persona)"
+            }
+        }
+        // Retrieval-augmented few-shot: the user's own past continuations, most
+        // similar to the current context (LaMP-style personalization). Rides in
+        // the directive AFTER persona so the changing text stays the prompt tail
+        // (KV-cache-friendly: examples only change on their off-path refresh).
+        if !request.personalExamples.isEmpty {
+            directive += localized
+                ? "\n\nКак автор продолжал похожий текст раньше (только для стиля, не копировать дословно):"
+                : "\n\nHow the author continued similar text before (style reference only, do not copy verbatim):"
+            for example in request.personalExamples.prefix(3) {
+                directive += "\nText: …\(example.ctx)\nNext:\(example.next.hasPrefix(" ") ? "" : " ")\(example.next)"
+            }
+        }
+        // Capture an immutable copy in the @Sendable token closure below: a
+        // captured `var` crosses a concurrency boundary.
+        let directiveText = directive
+
+        // Same first-word confidence capture as the base path (see there). One
+        // caveat for calibration: this logprob is conditioned on the instruct
+        // prompt (directive + persona + template), i.e. the distribution the
+        // live path actually sampled from — deliberately NOT the raw-context
+        // score `logProbMean` computes offline.
+        let recording = !gateForceSample.get()
+        if recording { firstWordLogProbBox.set(nil) }
+        let logProbSink = recording ? LockedValue<Double?>(nil) : nil
+
+        let parameters = completionParameters(for: request)
+        let gate = prepared.gate(cleanInstruct: true)
+        let output = try await Self.generate(
+            in: container,
+            makeTokens: { context in
+                // prefill opens the assistant turn with the text; infill already
+                // embeds BEFORE/AFTER in the directive — both send the directive alone.
+                let userContent = (prefill || infill) ? directiveText : "\(directiveText)\n\nText:\n\(promptText)"
+                let messages: [[String: any Sendable]] = [["role": "user", "content": userContent]]
+                // Hybrid-reasoning templates (MiniCPM5/Qwen3-style) default to a
+                // <think> block that burns the whole token budget; ask for the
+                // no-think branch. Templates without the variable (Gemma) ignore it.
+                var toks = try context.tokenizer.applyChatTemplate(
+                    messages: messages, tools: nil,
+                    additionalContext: ["enable_thinking": false])
+                if prefill {
+                    // Open the assistant turn with the user's text (BOS stripped)
+                    // so the model continues it instead of answering about it.
+                    let bos = context.tokenizer.convertTokenToId("<bos>")
+                    toks.append(contentsOf: context.tokenizer.encode(text: promptText).filter { $0 != bos })
+                }
+                return toks
+            },
+            parameters: parameters,
+            // Instruct replies end on the turn marker; add it defensively.
+            // No first-token boost: instruct answers flush, so the space-led
+            // boost tokens can't match — personalization rides the directive
+            // (persona + RAG examples) here instead.
+            extraEOSTokens: extraEOSTokens.union(["<end_of_turn>"]),
+            promptCache: promptCache,
+            // Prefill needs ≥a few real tokens before EOS is allowed, or Gemma
+            // ends the turn immediately after the prefilled text.
+            minTokens: prefill ? 3 : 0,
+            logProbSink: logProbSink,
+            trimLogProb: recording ? trimLogProbThreshold : nil,
+            onPartial: Self.makeStreamHandler(onPartial, gate: gate)
+        )
+        try Task.checkCancellation()
+        let result = gate(output)
+        if recording, result != nil { firstWordLogProbBox.set(logProbSink?.get()) }
+        return result
+    }
+
+    /// Per-keystroke token budget: the length setting, trimmed harder for chat.
+    /// Cyrillic tokenizes to ~2× tokens/word, so the same word-count target needs
+    /// a bigger token cap — without this, `short` clips Russian mid-phrase
+    /// (eval: instruct short ru 50 vs medium ru 54). The directive stays in
+    /// *words*; only the hard cap scales with the script.
+    private func tokenBudget(for request: CompletionRequest) -> Int {
+        let cyrillic = Self.isCyrillicHeavy(request.textBeforeCaret)
+        var budget = lengthBox.get().maxTokens
+        if cyrillic { budget = Int((Double(budget) * 1.7).rounded()) }
+        let chatCap = cyrillic ? 13 : 8
+        return request.isChatApp ? min(budget, chatCap) : budget
+    }
+
+    /// Sampling parameters shared by both completion paths (base and instruct).
+    /// Greedy by default — argmax IS the model's best guess (beam rerank on its
+    /// own posterior scored p=1.0), so every draw below argmax is expected loss,
+    /// and the T=0.1 "touch of temperature" inherited from Cotabby was never
+    /// measured here: the harness always pinned greedy, so no booked number ever
+    /// described the shipped decoder. Repetition penalty off for the same reason
+    /// plus one of its own — in real typing the words most likely to repeat (a
+    /// name, a term, the project you're writing about) are exactly the ones it
+    /// suppresses, and its processor also skews the logprobs the gate reads.
+    /// The old production decoder is the A/B arm, one line of env away:
+    /// `PRETYPE_EVAL_SAMPLING=1 PRETYPE_REP_PENALTY=1.05`.
+    private func completionParameters(for request: CompletionRequest) -> GenerateParameters {
+        let env = ProcessInfo.processInfo.environment
+        let envTemp = Float(env["PRETYPE_TEMPERATURE"] ?? "")
+        // The confidence gate is the one caller that needs diverse draws — under
+        // greedy all K samples are identical and it would pass everything.
+        let temperature: Float = gateForceSample.get()
+            ? (envTemp ?? 0.6)
+            : (envTemp ?? (Self.greedy.get() ? 0.0 : 0.1))
+        return GenerateParameters(
+            maxTokens: tokenBudget(for: request),
+            temperature: temperature,
+            topP: 0.7,
+            topK: 20,
+            minP: 0.08,
+            repetitionPenalty: Float(env["PRETYPE_REP_PENALTY"] ?? "")
+        )
+    }
+
+    func updateCompletion(length: CompletionLength, instructions: String) {
+        lengthBox.set(length)
+        instructionsBox.set(instructions)
+    }
+
+    func updatePersonalization(_ level: PersonalizationLevel) {
+        personalizationBox.set(level)
+    }
+
+    /// Context-conditioned personal boost for the first generated token: the
+    /// words the user has typed after this very context (personal n-gram),
+    /// weighted by evidence — level.bias × `PersonalNgram.fusionBoost`, the
+    /// beam-fusion formula (measured directionally positive, discordants 3/0)
+    /// applied to the greedy path at zero extra decode cost. Replaces the flat
+    /// favored-word bias, which measured null (p=1.0): context-free frequent
+    /// words are already probable, so biasing them moves nothing. nil when
+    /// personalization is off or the context is unseen.
+    private func ngramBias(for prepared: PreparedPrompt) -> PersonalizationBias? {
+        let level = personalizationBox.get()
+        guard level.bias > 0 else { return nil }
+        // An unfinished word at the caret: a next-word boost could truncate it.
+        if prepared.endsMidWord, !prepared.endsCompleteWord { return nil }
+        let counts = PersonalNgram.shared.continuations(after: prepared.text)
+        guard !counts.isEmpty else { return nil }
+        // ponytail: top-32 by evidence — bounds the per-generation tokenizer
+        // encodes in makeBiasProcessor (a frequent context word can carry
+        // hundreds of continuations); raise if a measured win ever wants more.
+        let top = counts.sorted { $0.value > $1.value }.prefix(32)
+        return PersonalizationBias(weights: Dictionary(uniqueKeysWithValues: top.map {
+            ($0.key, level.bias * Float(PersonalNgram.fusionBoost(count: $0.value)))
+        }))
+    }
+
+    /// True when the recent text is majority-Cyrillic — used to widen the token
+    /// budget so Russian word-count targets aren't clipped, and to localize the
+    /// instruct directive.
+    private static func isCyrillicHeavy(_ text: String) -> Bool {
+        var cyrillic = 0
+        var letters = 0
+        for scalar in text.suffix(120).unicodeScalars {
+            if (0x0400...0x04FF).contains(scalar.value) {
+                cyrillic += 1
+                letters += 1
+            } else if CharacterSet.letters.contains(scalar) {
+                letters += 1
+            }
+        }
+        return letters >= 6 && cyrillic * 2 > letters
+    }
+
+    // MARK: - Fix selection
+
+    var supportsCorrection: Bool { true }
+
+    /// Fixes typos/grammar in a selected line via the instruct sibling model
+    /// (loaded lazily, fresh KV cache). Minimal-edit prompt + a divergence guard
+    /// keep it from rewriting the selection. The shared prompt/cleanup/guard live
+    /// in `CorrectionGates`.
+    func correct(selection: String, request: CompletionRequest,
+                 redactLog: Bool) async throws -> String? {
+        guard let task = beginRequest() else { return nil }
+        defer { endRequest() }
+        // Instruct style already runs the instruct model as primary; base
+        // style loads the instruct sibling lazily on first ⌥Tab.
+        let container = style == .instruct
+            ? try await task.value
+            : try await correctionContainer()
+        try Task.checkCancellation()
+
+        let trimmed = selection.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count <= 500, !trimmed.contains("\n") else { return nil }
+
+        // Instruct model through its OWN chat template — much stronger
+        // instruction following than a raw few-shot prompt.
+        let instruction = """
+        \(CorrectionGates.correctionDirective)
+
+        \(trimmed)
+        """
+        let messages: [[String: any Sendable]] = [["role": "user", "content": instruction]]
+
+        // NO repetition penalty here: fixing typos means re-emitting most of
+        // the original tokens verbatim, which a penalty actively punishes.
+        // Budget scales with the selection so long lines aren't clipped.
+        let parameters = GenerateParameters(
+            maxTokens: CorrectionGates.correctionTokenBudget(forChars: trimmed.count), temperature: 0.0
+        )
+        let output = try await Self.generate(
+            in: container,
+            makeTokens: { context in
+                // Same template context as reply()/completeInstruct: without
+                // enable_thinking=false the MiniCPM RL template opens a think
+                // turn and the fix path generates NOTHING (eval-correct
+                // 2026-07-25: 0/510 offered); Gemma templates ignore the key.
+                try context.tokenizer.applyChatTemplate(
+                    messages: messages, tools: nil,
+                    additionalContext: ["enable_thinking": false])
+            },
+            parameters: parameters,
+            // Stop on the turn marker, like every other instruct-templated
+            // path. Without it E4B-it-4bit ran past its answer into same-line
+            // junk on 39% of eval-correct rows ("fix.less than 100 words").
+            extraEOSTokens: extraEOSTokens.union(["<end_of_turn>"]),
+            promptCache: nil,
+            // The generation log prints its own raw output — redacting only the
+            // divergence-guard line below would leave the same sentence in the
+            // buffer twenty lines earlier, on the SUCCESS path at that.
+            logRaw: !redactLog
+        )
+        try Task.checkCancellation()
+
+        let fixed = CorrectionGates.trimRunOn(
+            CorrectionGates.cleanCorrectionOutput(output), original: trimmed)
+        guard !fixed.isEmpty, fixed != trimmed else { return nil }
+        guard CorrectionGates.isMinimalCorrection(original: trimmed, fixed: fixed) else {
+            DebugLog.shared.log(
+                "FIX", "rejected over-rewrite",
+                detail: redactLog
+                    ? "\(trimmed.count) → \(fixed.count) chars — redacted from log"
+                    : "\"\(trimmed)\" → \"\(fixed)\"")
+            return nil
+        }
+        return fixed
+    }
+
+    // MARK: - Reply
+
+    /// Writes the user's next message from the conversation on screen, through
+    /// the same instruct sibling (and the same lazy load) as the ⌥⇥ fix — a base
+    /// model can't follow "answer this". One shot, no prompt cache: the prompt is
+    /// a fresh screenful every time, so a cache would only ever miss.
+    func reply(to conversation: String, request: CompletionRequest) async throws -> String? {
+        guard let task = beginRequest() else { return nil }
+        defer { endRequest() }
+        let container = style == .instruct
+            ? try await task.value
+            : try await correctionContainer()
+        try Task.checkCancellation()
+
+        let instruction = request.replyPrompt(
+            conversation: conversation, instructions: instructionsBox.get())
+        let messages: [[String: any Sendable]] = [["role": "user", "content": instruction]]
+        // ponytail: flat 200-token budget — a few sentences, doubled for the
+        // Cyrillic case rather than measured per script. Tighten if replies ever
+        // read as clipped.
+        let parameters = GenerateParameters(maxTokens: 200, temperature: 0.0)
+        let output = try await Self.generate(
+            in: container,
+            makeTokens: { context in
+                try context.tokenizer.applyChatTemplate(
+                    messages: messages, tools: nil,
+                    additionalContext: ["enable_thinking": false])
+            },
+            parameters: parameters,
+            extraEOSTokens: extraEOSTokens.union(["<end_of_turn>"]),
+            promptCache: nil
+        )
+        try Task.checkCancellation()
+        return request.cleanReply(output)
+    }
+
+    /// FIM emulation is only reliable on E4B-class instruct models; on the smaller
+    /// E2B it echoes the suffix / misfires (measured). Fine-tunes & unknown ids are
+    /// treated as not capable, so auto-FIM stays conservative.
+    static func isFIMCapable(_ modelID: String) -> Bool {
+        modelID.lowercased().contains("e4b")
+    }
+
+    /// A reassuring download line. A multi-GB model otherwise sits at "0%" for
+    /// minutes — the percent only reaches 1% after ~1% of several GB, and the
+    /// large shards stream over HF's slower Xet path. Showing the byte counts
+    /// proves it is alive and moving.
+    private static func downloadStatus(_ progress: Progress, label: String = "downloading") -> String {
+        let pct = Int((progress.fractionCompleted * 100).rounded())
+        guard progress.totalUnitCount > 0 else { return "\(label) \(pct)%" }
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        formatter.allowedUnits = [.useMB, .useGB]
+        let done = formatter.string(fromByteCount: progress.completedUnitCount)
+        let total = formatter.string(fromByteCount: progress.totalUnitCount)
+        return "\(label) \(done) / \(total) (\(pct)%)"
+    }
+
+    func shutdown() {
+        idleTimer?.cancel(); idleTimer = nil
+        memoryPressureSource?.cancel(); memoryPressureSource = nil
+        modelLock.lock()
+        loadTask?.cancel(); loadTask = nil
+        correctionLoadTask?.cancel(); correctionLoadTask = nil
+        modelLock.unlock()
+    }
+
+    /// Whether a fix would cost at most a LOAD, never a download.
+    ///
+    /// Deliberately not "is the model resident": an idle-unloaded model is
+    /// still on disk, and re-reading it is exactly the kind of wait the
+    /// tidy-up's own budget is there to bound. What no budget can absorb is a
+    /// multi-gigabyte fetch — so that, and only that, answers false.
+    ///
+    /// Both styles are probed, and the first draft of this was wrong to skip
+    /// instruct: it fixes with the PRIMARY model, which is only "already here"
+    /// after its own first download — on a fresh install that is the same
+    /// multi-gigabyte wait, reached by a different branch.
+    ///
+    /// Memoized once true: the answer can only go from "not fetched" to
+    /// "fetched" while an engine lives. The first probe is still a small
+    /// directory read on whatever thread asks (often main); the memo only
+    /// spares every call after it.
+    var isCorrectionReady: Bool {
+        if correctionFetched.get() { return true }
+        let fetched = ModelStorage.isFetched(style == .instruct ? modelID : correctionModelID)
+        if fetched { correctionFetched.set(true) }
+        return fetched
+    }
+
+    func prewarmCorrection() {
+        guard style != .instruct else { return prewarmIfNeeded() }
+        _ = correctionLoadTaskOrCreate()
+    }
+
+    /// The sibling `correct` would use — resolved the same way
+    /// `correctionLoadTaskOrCreate` resolves it.
+    private var correctionModelID: String {
+        ProcessInfo.processInfo.environment["PRETYPE_TEST_FIX_MODEL"]
+            ?? ModelCatalog.option(for: modelID)?.correctionModelID
+            ?? ModelCatalog.options[0].correctionModelID
+    }
+
+    private func correctionContainer() async throws -> ModelContainer {
+        try await correctionLoadTaskOrCreate().value
+    }
+
+    private func correctionLoadTaskOrCreate() -> Task<ModelContainer, Error> {
+        modelLock.lock(); defer { modelLock.unlock() }
+        if let correctionLoadTask { return correctionLoadTask }
+        let id = correctionModelID
+        let stateBox = self.stateBox
+        let correctionFetched = self.correctionFetched
+        let task = Task<ModelContainer, Error> { [weak self] in
+            let previous = stateBox.get()
+            stateBox.set(.preparing("loading fix model…"))
+            do {
+                let container = try await #huggingFaceLoadModelContainer(
+                    configuration: ModelConfiguration(id: id),
+                    progressHandler: { progress in
+                        stateBox.set(.preparing(Self.downloadStatus(progress, label: "fix model")))
+                    }
+                )
+                stateBox.set(previous)
+                // Whatever the disk probe thought, the weights are provably
+                // here now — and after an idle unload nils the task, this is
+                // what keeps the next fix from being skipped as "not fetched".
+                correctionFetched.set(true)
+                return container
+            } catch {
+                stateBox.set(previous)
+                self?.clearCorrectionLoadTaskOnFailure()
+                throw error
+            }
+        }
+        correctionLoadTask = task
+        return task
+    }
+
+    private func clearCorrectionLoadTaskOnFailure() {
+        modelLock.lock()
+        defer { modelLock.unlock() }
+        correctionLoadTask = nil
+    }
+}
