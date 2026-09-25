@@ -1582,7 +1582,7 @@ struct SuggestionsTab: View {
                                   selection: store.style,
                                   select: { style in
                                       // Base↔Instruct inserts/removes requirement
-                                      // rows and swaps badge blocks in two sections.
+                                      // rows in the precision section.
                                       withAnimation(.easeInOut(duration: 0.18)) { store.style = style }
                                   },
                                   hover: { style, hovering in
@@ -1625,12 +1625,70 @@ struct SuggestionsTab: View {
                               hover: { length, hovering in
                                   store.setHover(.length(length), hovering)
                               })
-                Caption("\(store.hotkeyStyle.label) still accepts one word at a time; length caps how far a single suggestion runs ahead. Low-confidence endings are trimmed automatically, so this is a maximum, not a promise.")
+                LengthSummary(modelID: store.modelID, length: store.length)
+                Caption("\(store.hotkeyStyle.label) accepts one word at a time. Low-confidence endings are trimmed automatically.")
             }
         }
         .formStyle(.grouped)
     }
 
+}
+
+/// The two consequences of the length control, kept as ordinary settings
+/// readouts instead of promotional chips. Figures use the same measured model
+/// latency and length-sweep ratios as the live preview rail.
+private struct LengthSummary: View {
+    let modelID: String
+    let length: CompletionLength
+
+    var body: some View {
+        HStack(spacing: 18) {
+            metric(icon: "clock", label: "Typical response", value: responseTime)
+            Divider().frame(height: 28)
+            metric(icon: "text.word.spacing", label: "Maximum length", value: maximumLength)
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func metric(icon: String, label: String, value: String) -> some View {
+        HStack(spacing: 7) {
+            Image(systemName: icon)
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(value)
+                    .font(.callout)
+                    .monospacedDigit()
+            }
+        }
+        .frame(minWidth: 142, alignment: .leading)
+    }
+
+    private var responseTime: String {
+        guard let baseMs = ModelMetrics.metrics(for: modelID)?.p50Ms else {
+            switch length {
+            case .short, .word: return "Fastest"
+            case .medium: return "About 2× slower"
+            case .long: return "About 3.5× slower"
+            }
+        }
+        let milliseconds = Int((Double(baseMs) * ConfigProjection.latencyFactor(length)).rounded())
+        return milliseconds >= 1_000
+            ? String(format: "≈%.1f s", Double(milliseconds) / 1_000)
+            : "≈\(milliseconds) ms"
+    }
+
+    private var maximumLength: String {
+        switch length {
+        case .short, .word: return "2–3 words"
+        case .medium: return "About 6 words"
+        case .long: return "About a sentence"
+        }
+    }
 }
 
 // MARK: - Personalization tab
