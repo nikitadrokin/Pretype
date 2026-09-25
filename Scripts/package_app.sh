@@ -6,7 +6,14 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 
 APP_NAME=Pretype
-BUNDLE_ID=me.nkdr.pretype
+# Development and distribution builds must not share a bundle ID when they use
+# incompatible signing requirements. Otherwise launching an ad-hoc release can
+# displace the TCC grants belonging to a certificate-signed local build.
+if [[ "${SIGNING_MODE:-}" != adhoc && -f "$ROOT/.pretype.local.env" ]]; then
+  # Machine-specific certificate fingerprints do not belong in the repository.
+  source "$ROOT/.pretype.local.env"
+fi
+BUNDLE_ID=${PRETYPE_BUNDLE_ID:-me.nkdr.pretype}
 MACOS_MIN_VERSION=26.0
 source "$ROOT/version.env"
 MARKETING_VERSION=${PRETYPE_VERSION:-$MARKETING_VERSION}
@@ -60,7 +67,7 @@ PLIST
 xattr -cr "$APP"
 find "$APP" -name '._*' -delete
 
-IDENTITY=${APP_IDENTITY:-}
+IDENTITY=${APP_IDENTITY:-${PRETYPE_DEVELOPMENT_IDENTITY:-}}
 if [[ -z "$IDENTITY" && "${SIGNING_MODE:-}" != adhoc ]]; then
   IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | awk '/Apple Development/ {print $2; exit}')
 fi

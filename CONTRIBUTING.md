@@ -26,6 +26,18 @@ The packaging script creates the Info.plist, copies the icon and executable,
 adds the microphone entitlement used by optional dictation, signs the bundle,
 and verifies its signature.
 
+To keep macOS privacy grants stable across local rebuilds, optionally create an
+ignored `.pretype.local.env` file with a fixed development identity and a bundle
+ID distinct from the distributed app:
+
+```bash
+PRETYPE_DEVELOPMENT_IDENTITY=YOUR_CERTIFICATE_SHA1
+PRETYPE_BUNDLE_ID=me.nkdr.pretype.dev
+```
+
+Find valid fingerprints with `security find-identity -v -p codesigning`.
+Ad-hoc release builds deliberately ignore this file.
+
 ## Runtime permissions
 
 The built app needs Accessibility permission. Optional screen context needs
