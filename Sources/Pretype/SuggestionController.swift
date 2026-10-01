@@ -131,7 +131,9 @@ final class SuggestionController: NSObject {
     // Opt-in text and image context of the focused window.
     private var screenSummary: String?
     private var screenImage: CGImage?
-    private var screenCapturedAt = Date.distantPast
+    /// One attempt per focused field. A failed/empty capture is still an
+    /// attempt, otherwise every following keystroke would try again.
+    private var screenCaptureAttempted = false
     private var screenCaptureInFlight = false
 
     // Opt-in clipboard context, re-read only when the pasteboard changes.
@@ -462,18 +464,21 @@ final class SuggestionController: NSObject {
         }
         if screenImage != nil { return "captured image" }
         if let screenSummary { return "captured \(screenSummary.count) OCR chars" }
-        return screenCaptureInFlight ? "capturing…" : "nothing captured yet"
+        if screenCaptureInFlight { return "capturing…" }
+        return screenCaptureAttempted ? "nothing usable captured" : "waiting for typing"
     }
 
-    /// Refreshes focused-window context at most every 25 s, off the typing path.
-    private func refreshScreenContextIfNeeded(typed: String) {
+    /// Captures once, after typing begins in a focused allowed field. The result
+    /// is reused for that field instead of repeatedly photographing a mostly
+    /// unchanged conversation while the user writes their response.
+    private func captureScreenContextIfNeeded(typed: String) {
         let wantsImage = Settings.screenImageContextEnabled && ScreenContext.supportsImageContext
         guard Settings.screenContextEnabled || wantsImage,
               ScreenContext.hasPermission,
               AppPolicy.allowsScreenContext(typingContext.bundleID) else { return }
-        guard !screenCaptureInFlight,
-              Date().timeIntervalSince(screenCapturedAt) > 25,
+        guard !screenCaptureAttempted, !screenCaptureInFlight,
               focusTracker.observedPID > 0 else { return }
+        screenCaptureAttempted = true
         screenCaptureInFlight = true
         let pid = focusTracker.observedPID
         let generation = focusGeneration
@@ -490,7 +495,6 @@ final class SuggestionController: NSObject {
                     DebugLog.shared.log("OCR", "discarded stale capture of \(appName) (focus changed)")
                     return
                 }
-                self.screenCapturedAt = Date()
                 self.screenSummary = Settings.screenContextEnabled ? capture?.summary : nil
                 self.screenImage = wantsImage ? capture?.image : nil
                 // Count only, never the text: the log is exportable and this is
@@ -555,7 +559,7 @@ final class SuggestionController: NSObject {
         latestTextBeforeCaret = text
         lastCaretRect = ctx.caretRect
         lastHostStyle = ctx.host
-        refreshScreenContextIfNeeded(typed: text)
+        captureScreenContextIfNeeded(typed: text)
         refreshPersonalExamplesIfNeeded(typed: text)
 
         // A reviving last-word fix preview, or an inline spell-fix on the word at
@@ -1032,7 +1036,7 @@ final class SuggestionController: NSObject {
         refreshSeq += 1
         let refreshID = refreshSeq
         refreshTask = Task { [weak self] in
-            // A fresh, wider capture — not the 25 s-cached completion context:
+            // A fresh, wider capture — not the field-scoped completion context:
             // the message being answered may have landed a second ago. No caret
             // ROI either: that band is ±250 pt of the input box, while a reply
             // needs the exchange above it — the whole window, capped from the
@@ -1660,7 +1664,7 @@ extension SuggestionController: FocusTrackerDelegate {
         // Stale window text must not leak into the new context.
         screenSummary = nil
         screenImage = nil
-        screenCapturedAt = .distantPast
+        screenCaptureAttempted = false
         // The cache and any live settle window are field-scoped: carried into
         // the new app they would hold textDidChange hostage to the OLD field's
         // text (retry loop until the deadline) and advanceCache would glue new
@@ -1685,11 +1689,6 @@ extension SuggestionController: FocusTrackerDelegate {
                     lastHostStyle = ctx.host
                     indicator.start()
                 }
-            }
-            let generation = focusGeneration
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-                guard let self, self.focusGeneration == generation else { return }
-                self.refreshScreenContextIfNeeded(typed: "")
             }
         }
     }

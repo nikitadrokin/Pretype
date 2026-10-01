@@ -39,7 +39,7 @@ struct ModelTab: View {
                     .disabled(!ScreenContext.supportsImageContext)
                 Toggle("Use clipboard context", isOn: $store.clipboardContext)
                 Caption(ScreenContext.supportsImageContext
-                    ? "Screenshots are downscaled and refreshed at most every 25 seconds. They stay on this Mac, but may make suggestions slower."
+                    ? "One downscaled screenshot is taken when you start typing, then reused until focus changes. It stays on this Mac, but may make suggestions slower."
                     : "Image context requires macOS 27. OCR and clipboard context remain available and stay on this Mac.")
             }
         }

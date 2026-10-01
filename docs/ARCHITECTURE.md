@@ -169,7 +169,7 @@ Hold-to-talk, off by default, macOS 26+ (`Sources/Pretype/Dictation/`).
   in chat apps, disabled entirely in terminals and password managers), and all
   reading stops while macOS reports secure input.
 * **Screen context** — optional, off by default, with independent OCR and image
-  switches. One focused-window capture can feed Vision OCR and, on macOS 27 or
-  later, a downscaled image attachment to Foundation Models. Captures refresh
-  at most every 25 seconds, never enter the debug log or disk, and are cleared
-  on focus changes. Requires Screen Recording.
+  switches. The first typing event in an allowed focused field takes one window
+  capture, which can feed Vision OCR and, on macOS 27 or later, a downscaled
+  image attachment to Foundation Models. That capture is reused until focus
+  changes; it never enters the debug log or disk. Requires Screen Recording.
