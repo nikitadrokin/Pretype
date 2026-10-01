@@ -76,6 +76,21 @@ enum SettingsUI {
             return
         }
         Settings.screenContextEnabled = true
+        requestScreenRecordingIfNeeded()
+    }
+
+    /// Screenshot context shares Screen Recording permission with OCR, but is
+    /// an independent privacy and compute choice.
+    static func setScreenImageContext(_ enable: Bool) {
+        guard enable else {
+            Settings.screenImageContextEnabled = false
+            return
+        }
+        Settings.screenImageContextEnabled = true
+        requestScreenRecordingIfNeeded()
+    }
+
+    private static func requestScreenRecordingIfNeeded() {
         guard !ScreenContext.hasPermission else { return }
         ScreenContext.registerWithTCC()
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {

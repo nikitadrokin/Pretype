@@ -17,8 +17,9 @@ keep typing to dismiss it.
 - No account, API key, subscription, telemetry, or text upload is required.
 - Secure input, password-like fields, terminals, and password managers are
   excluded from text capture.
-- Screen OCR and clipboard context are optional and disabled unless enabled in
-  Settings.
+- Screen OCR, app-window image context, and clipboard context are separate,
+  optional settings. Image context requires macOS 27; captures are downscaled,
+  kept only in memory, and passed directly to the on-device model.
 
 Accessibility is a powerful permission. The relevant input path is small and
 auditable: `AXText.swift` reads editable text, `KeyTap.swift` handles acceptance,

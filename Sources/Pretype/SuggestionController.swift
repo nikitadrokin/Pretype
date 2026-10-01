@@ -128,8 +128,9 @@ final class SuggestionController: NSObject {
     /// many keystrokes stale while no suggestion is live.
     private(set) var lastHostStyle = HostTextStyle()
 
-    // Opt-in OCR context of the focused window.
+    // Opt-in text and image context of the focused window.
     private var screenSummary: String?
+    private var screenImage: CGImage?
     private var screenCapturedAt = Date.distantPast
     private var screenCaptureInFlight = false
 
@@ -379,7 +380,10 @@ final class SuggestionController: NSObject {
     func makeRequest(text: String, after: String = "") -> CompletionRequest {
         var request = CompletionRequest(textBeforeCaret: text, textAfterCaret: after, context: typingContext)
         if AppPolicy.allowsScreenContext(typingContext.bundleID) {
-            request.screenSummary = screenSummary
+            if Settings.screenContextEnabled { request.screenSummary = screenSummary }
+            if Settings.screenImageContextEnabled, ScreenContext.supportsImageContext {
+                request.screenImage = screenImage
+            }
             // Same app gate as the OCR: clipboard in a terminal/code editor is
             // usually code, which poisons a prose model. Skip once pasted —
             // the field already contains it.
@@ -445,20 +449,27 @@ final class SuggestionController: NSObject {
 
     /// Surfaced in the Context submenu.
     var screenContextStatus: String {
-        guard Settings.screenContextEnabled else { return "off" }
+        let wantsImage = Settings.screenImageContextEnabled && ScreenContext.supportsImageContext
+        guard Settings.screenContextEnabled || wantsImage else { return "off" }
         guard ScreenContext.hasPermission else {
             return "no Screen Recording permission (grant + relaunch)"
         }
         guard AppPolicy.allowsScreenContext(typingContext.bundleID) else {
             return "blocked in this app (terminal/code editor)"
         }
-        if let screenSummary { return "captured \(screenSummary.count) chars" }
+        if screenImage != nil, let screenSummary {
+            return "captured image + \(screenSummary.count) OCR chars"
+        }
+        if screenImage != nil { return "captured image" }
+        if let screenSummary { return "captured \(screenSummary.count) OCR chars" }
         return screenCaptureInFlight ? "capturing…" : "nothing captured yet"
     }
 
-    /// Refreshes the window OCR at most every 25 s, off the typing path.
+    /// Refreshes focused-window context at most every 25 s, off the typing path.
     private func refreshScreenContextIfNeeded(typed: String) {
-        guard Settings.screenContextEnabled, ScreenContext.hasPermission,
+        let wantsImage = Settings.screenImageContextEnabled && ScreenContext.supportsImageContext
+        guard Settings.screenContextEnabled || wantsImage,
+              ScreenContext.hasPermission,
               AppPolicy.allowsScreenContext(typingContext.bundleID) else { return }
         guard !screenCaptureInFlight,
               Date().timeIntervalSince(screenCapturedAt) > 25,
@@ -469,7 +480,9 @@ final class SuggestionController: NSObject {
         let appName = typingContext.appName ?? "?"
         let caret = self.lastCaretRect
         Task { [weak self] in
-            let summary = await ScreenContext.capture(pid: pid, excluding: typed, caretRect: caret)
+            let capture = await ScreenContext.capture(
+                pid: pid, excluding: typed, caretRect: caret,
+                includeOCR: Settings.screenContextEnabled)
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 self.screenCaptureInFlight = false
@@ -478,14 +491,19 @@ final class SuggestionController: NSObject {
                     return
                 }
                 self.screenCapturedAt = Date()
-                self.screenSummary = summary
+                self.screenSummary = Settings.screenContextEnabled ? capture?.summary : nil
+                self.screenImage = wantsImage ? capture?.image : nil
                 // Count only, never the text: the log is exportable and this is
                 // OTHER people's on-screen text. Passing it as `detail` here
                 // leaked it straight past the redaction the prompt log does
                 // below, and past the export warning's "text you typed" framing.
                 DebugLog.shared.log(
                     "OCR",
-                    summary.map { "captured \($0.count) chars (\(appName))" } ?? "nothing usable captured (\(appName))"
+                    capture.map { result in
+                        let pixels = "\(result.image.width)×\(result.image.height) image"
+                        let ocr = result.summary.map { " + \($0.count) OCR chars" } ?? ""
+                        return "captured \(pixels)\(ocr) (\(appName))"
+                    } ?? "nothing usable captured (\(appName))"
                 )
             }
         }
@@ -688,6 +706,7 @@ final class SuggestionController: NSObject {
                 "PROMPT",
                 "\(fullPrompt.count) chars"
                     + (request.screenSummary.map { " (incl. \($0.count) screen)" } ?? "")
+                    + (request.screenImage == nil ? "" : " (incl. app screenshot)")
                     + (request.clipboardContext.map { " (incl. \($0.count) clip)" } ?? "")
                     + " — \(request.appName ?? "?")",
                 detail: fullPrompt
@@ -867,7 +886,7 @@ final class SuggestionController: NSObject {
             resolveJournal(.superseded)
             pendingJournal = PendingJournal(
                 ctx: current, after: ctx.textAfterCaret, suggestion: suggestion,
-                hadScreen: screenSummary != nil
+                hadScreen: (screenSummary != nil || screenImage != nil)
                     && AppPolicy.allowsScreenContext(typingContext.bundleID),
                 app: typingContext.bundleID,
                 engine: instant ? "ngram" : engine.name,
@@ -1018,7 +1037,7 @@ final class SuggestionController: NSObject {
             // ROI either: that band is ±250 pt of the input box, while a reply
             // needs the exchange above it — the whole window, capped from the
             // bottom, which is where the recent messages are.
-            let conversation = await ScreenContext.capture(
+            let conversation = await ScreenContext.captureText(
                 pid: pid, excluding: ctx.textBeforeCaret, caretRect: nil, maxChars: 1200)
             if Task.isCancelled { return }
             let outcome: Result<String?, Error>
@@ -1640,6 +1659,7 @@ extension SuggestionController: FocusTrackerDelegate {
         )
         // Stale window text must not leak into the new context.
         screenSummary = nil
+        screenImage = nil
         screenCapturedAt = .distantPast
         // The cache and any live settle window are field-scoped: carried into
         // the new app they would hold textDidChange hostage to the OLD field's

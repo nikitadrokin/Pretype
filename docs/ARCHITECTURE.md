@@ -168,7 +168,8 @@ Hold-to-talk, off by default, macOS 26+ (`Sources/Pretype/Dictation/`).
 * **App awareness** — prompt style adapts to the active app (short completions
   in chat apps, disabled entirely in terminals and password managers), and all
   reading stops while macOS reports secure input.
-* **Screen context** — optional, off by default. Runs Apple's Vision OCR on the
-  focused window to pull in nearby text, such as the email thread you're
-  replying to. Requires Screen Recording. OCR'd text never enters the debug
-  log; exported logs carry a size-only placeholder in its place.
+* **Screen context** — optional, off by default, with independent OCR and image
+  switches. One focused-window capture can feed Vision OCR and, on macOS 27 or
+  later, a downscaled image attachment to Foundation Models. Captures refresh
+  at most every 25 seconds, never enter the debug log or disk, and are cleared
+  on focus changes. Requires Screen Recording.

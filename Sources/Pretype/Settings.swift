@@ -574,6 +574,13 @@ enum Settings {
         set { defaults.set(newValue, forKey: "screenContext") }
     }
 
+    /// Opt-in screenshot of the focused app window, passed directly to the
+    /// on-device model as visual context on systems that support image input.
+    static var screenImageContextEnabled: Bool {
+        get { defaults.bool(forKey: "screenImageContext") }
+        set { defaults.set(newValue, forKey: "screenImageContext") }
+    }
+
     /// Opt-in: feed the current clipboard text to the model as extra context
     /// (the thing being replied to is often just-copied). Same label-free
     /// prompt block as the screen context; concealed/transient pasteboards

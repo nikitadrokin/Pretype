@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import FoundationModels
 
@@ -159,10 +160,17 @@ final class FoundationModelsEngine: CompletionEngine {
         // multi-turn transcript.
         let session = LanguageModelSession(instructions: instructions)
         do {
-            let response = try await session.respond(to: prompt, options: generationOptions())
+            let responseContent: String
+            if #available(macOS 27.0, *), let image = request.screenImage {
+                responseContent = try await respond(
+                    session: session, prompt: prompt, image: image)
+            } else {
+                responseContent = try await session.respond(
+                    to: prompt, options: generationOptions()).content
+            }
             try Task.checkCancellation()
 
-            var raw = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            var raw = responseContent.trimmingCharacters(in: .whitespacesAndNewlines)
             for quote in ["\"", "“", "”"] {
                 if raw.hasPrefix(quote) { raw.removeFirst() }
                 if raw.hasSuffix(quote) { raw.removeLast() }
@@ -194,6 +202,15 @@ final class FoundationModelsEngine: CompletionEngine {
             DebugLog.shared.log("FM", "abstain — \(Self.describe(error))")
             return nil
         }
+    }
+
+    @available(macOS 27.0, *)
+    private func respond(session: LanguageModelSession, prompt: String,
+                         image: CGImage) async throws -> String {
+        try await session.respond(options: generationOptions()) {
+            Attachment(image).label("Focused app window")
+            prompt
+        }.content
     }
 
     /// The user-turn prompt for the active recipe. Screen/app context, when

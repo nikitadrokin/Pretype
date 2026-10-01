@@ -154,6 +154,10 @@ final class SettingsStore: ObservableObject {
         didSet { guard !syncing, oldValue != screenContext else { return }
             SettingsUI.setScreenContext(screenContext) }
     }
+    @Published var screenImageContext = false {
+        didSet { guard !syncing, oldValue != screenImageContext else { return }
+            SettingsUI.setScreenImageContext(screenImageContext) }
+    }
     @Published var clipboardContext = false {
         didSet { guard !syncing, oldValue != clipboardContext else { return }
             Settings.clipboardContextEnabled = clipboardContext }
@@ -678,6 +682,7 @@ final class SettingsStore: ObservableObject {
         perAppInstructions = Settings.perAppInstructions
         idleUnloadMinutes = Settings.idleUnloadMinutes
         screenContext = Settings.screenContextEnabled
+        screenImageContext = Settings.screenImageContextEnabled
         clipboardContext = Settings.clipboardContextEnabled
         automaticUpdateCheck = Settings.automaticUpdateCheck
         loginStatus = LoginItem.status  // the user may have flipped it in System Settings

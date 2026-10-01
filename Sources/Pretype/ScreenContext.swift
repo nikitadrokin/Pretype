@@ -2,12 +2,25 @@ import AppKit
 import ScreenCaptureKit
 import Vision
 
-/// Opt-in visual context: a screenshot of the focused app's window, run
-/// through local OCR. Gives the model what the text field alone can't —
-/// the conversation above a chat box, the email being replied to.
-/// Everything stays on device; the captured text is visible in
-/// "Show Last Prompt…".
+/// Opt-in visual context from the focused app's window. A capture can be run
+/// through local OCR, attached directly to the on-device model, or both.
+/// Nothing is persisted; OCR text is visible in "Show Last Prompt…", while
+/// image pixels never enter logs or prompt previews.
 enum ScreenContext {
+    struct Capture {
+        var summary: String?
+        var image: CGImage
+    }
+
+    /// Bounds visual-token and memory cost. Full-resolution captures are never
+    /// retained or written to disk.
+    private static let maxImageDimension = 1024
+
+    static var supportsImageContext: Bool {
+        if #available(macOS 27.0, *) { return true }
+        return false
+    }
+
     static var hasPermission: Bool {
         CGPreflightScreenCaptureAccess()
     }
@@ -29,10 +42,11 @@ enum ScreenContext {
         }
     }
 
-    /// OCR summary of `pid`'s frontmost window in reading order, deduplicated
-    /// against the already-typed text, capped at `maxChars` (keeping the
-    /// bottom of the window — in chats that's where the recent messages are).
-    static func capture(pid: pid_t, excluding typedText: String, caretRect: CGRect?, maxChars: Int = 600) async -> String? {
+    /// Captures `pid`'s frontmost window and optionally produces an OCR summary
+    /// in reading order, deduplicated against the already-typed text and capped
+    /// at `maxChars` (keeping the bottom, where recent chat messages live).
+    static func capture(pid: pid_t, excluding typedText: String, caretRect: CGRect?,
+                        maxChars: Int = 600, includeOCR: Bool = true) async -> Capture? {
         guard hasPermission else { return nil }
         // Privacy floor, mirroring the AX text path: while a password field is
         // engaged anywhere, don't capture the window either — the screenshot
@@ -86,11 +100,37 @@ enum ScreenContext {
                 }
             }
 
-            return try recognizeText(in: image, regionOfInterest: roi, excluding: typedText, maxChars: maxChars)
+            let summary = includeOCR ? try recognizeText(
+                in: image, regionOfInterest: roi, excluding: typedText, maxChars: maxChars) : nil
+            return Capture(summary: summary, image: downscaled(image))
         } catch {
             NSLog("Pretype: screen capture failed: %@", error.localizedDescription)
             return nil
         }
+    }
+
+    /// Compatibility helper for flows that specifically require OCR text.
+    static func captureText(pid: pid_t, excluding typedText: String,
+                            caretRect: CGRect?, maxChars: Int = 600) async -> String? {
+        await capture(pid: pid, excluding: typedText, caretRect: caretRect,
+                      maxChars: maxChars, includeOCR: true)?.summary
+    }
+
+    private static func downscaled(_ image: CGImage) -> CGImage {
+        let longest = max(image.width, image.height)
+        guard longest > maxImageDimension else { return image }
+        let scale = CGFloat(maxImageDimension) / CGFloat(longest)
+        let width = max(1, Int(CGFloat(image.width) * scale))
+        let height = max(1, Int(CGFloat(image.height) * scale))
+        guard let colorSpace = image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(
+                data: nil, width: width, height: height, bitsPerComponent: 8,
+                bytesPerRow: 0, space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return image }
+        context.interpolationQuality = .medium
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return context.makeImage() ?? image
     }
 
     private static func quartzRect(_ cocoaRect: CGRect) -> CGRect {

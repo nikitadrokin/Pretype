@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 struct CompletionRequest {
@@ -10,6 +11,9 @@ struct CompletionRequest {
     /// OCR text from the focused window (opt-in), e.g. the conversation
     /// above a chat input.
     var screenSummary: String?
+    /// Downscaled screenshot of the focused app window (separately opt-in).
+    /// Foundation Models accepts image attachments on macOS 27 and later.
+    var screenImage: CGImage?
     /// Current clipboard text (opt-in, capped) — what's being replied to is
     /// often just-copied. Prefixed to the prompt like the screen block.
     var clipboardContext: String?

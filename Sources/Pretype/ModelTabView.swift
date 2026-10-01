@@ -35,8 +35,12 @@ struct ModelTab: View {
         Form {
             Section("Context") {
                 Toggle("Use screen context (OCR)", isOn: $store.screenContext)
+                Toggle("Use app screenshot", isOn: $store.screenImageContext)
+                    .disabled(!ScreenContext.supportsImageContext)
                 Toggle("Use clipboard context", isOn: $store.clipboardContext)
-                Caption("Extra context stays on this Mac and is passed only to the system model.")
+                Caption(ScreenContext.supportsImageContext
+                    ? "Screenshots are downscaled and refreshed at most every 25 seconds. They stay on this Mac, but may make suggestions slower."
+                    : "Image context requires macOS 27. OCR and clipboard context remain available and stay on this Mac.")
             }
         }
         .formStyle(.grouped)
